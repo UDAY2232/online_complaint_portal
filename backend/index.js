@@ -76,6 +76,21 @@ app.post(
   }
 );
 
+// ================= GET ALL COMPLAINTS =================
+app.get("/api/complaints", async (req, res) => {
+  try {
+    const [rows] = await db
+      .promise()
+      .query("SELECT * FROM complaints ORDER BY created_at DESC");
+
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch complaints" });
+  }
+});
+
+
 // ================= SERVER =================
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () =>
