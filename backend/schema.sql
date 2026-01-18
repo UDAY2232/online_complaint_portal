@@ -11,8 +11,19 @@ CREATE TABLE complaints (
     priority ENUM('low', 'medium', 'high') NOT NULL,
     status ENUM('new', 'under-review', 'resolved') NOT NULL DEFAULT 'new',
     is_anonymous BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    problem_image_url VARCHAR(500),
+    resolved_image_url VARCHAR(500),
+    admin_message TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMP NULL
 );
+
+-- Run this ALTER statement if you already have the table:
+-- ALTER TABLE complaints 
+--   ADD COLUMN problem_image_url VARCHAR(500),
+--   ADD COLUMN resolved_image_url VARCHAR(500),
+--   ADD COLUMN admin_message TEXT,
+--   ADD COLUMN resolved_at TIMESTAMP NULL;
 
 CREATE TABLE anonymous_submissions (
     id INT PRIMARY KEY AUTO_INCREMENT,

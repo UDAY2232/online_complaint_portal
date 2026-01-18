@@ -26,46 +26,53 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
   const [file, setFile] = useState<File | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
+    e.preventDefault();
 
-  try {
-    const userEmail = localStorage.getItem("userEmail");
+    try {
+      const userEmail = localStorage.getItem("userEmail");
 
-    const formData = new FormData();
-    formData.append("category", category);
-    formData.append("description", description);
-    formData.append("priority", priority);
-    formData.append("email", userEmail || "");
-    formData.append("name", userEmail ? userEmail.split("@")[0] : "");
-    formData.append("is_anonymous", (!userEmail).toString());
+      const formData = new FormData();
+      formData.append("category", category);
+      formData.append("description", description);
+      formData.append("priority", priority);
+      formData.append("email", userEmail || "");
+      formData.append("name", userEmail ? userEmail.split("@")[0] : "");
+      formData.append("is_anonymous", (!userEmail).toString());
 
-    if (file) {
-      formData.append("file", file); // 🔥 must be "file"
+      if (file) {
+        formData.append("image", file); // 🔥 backend expects "image"
+      }
+
+      const res = await axios.post(
+        "https://online-complaint-backend.onrender.com/api/complaints",
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      toast({
+        title: "Complaint submitted",
+        description: "Complaint submitted successfully",
+      });
+
+      setCategory("");
+      setDescription("");
+      setPriority("");
+      setFile(null);
+
+      onSubmit?.(res.data);
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Error",
+        description: "Failed to submit complaint",
+        variant: "destructive",
+      });
     }
-
-    const res = await api.createComplaint(formData);
-
-    toast({
-      title: "Complaint submitted",
-      description: "Complaint submitted successfully",
-    });
-
-    setCategory("");
-    setDescription("");
-    setPriority("");
-    setFile(null);
-
-    onSubmit?.(res.data);
-  } catch (error) {
-    console.error(error);
-    toast({
-      title: "Error",
-      description: "Failed to submit complaint",
-      variant: "destructive",
-    });
-  }
-};
-
+  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -112,7 +119,7 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
         <Label>Upload Evidence (Optional)</Label>
         <Input
           type="file"
-          accept="image/*,.pdf"
+          accept="image/*"
           onChange={(e) => setFile(e.target.files?.[0] || null)}
         />
       </div>

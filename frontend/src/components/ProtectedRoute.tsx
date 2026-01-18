@@ -1,20 +1,10 @@
 import { Navigate } from "react-router-dom";
 
-interface Props {
-  children: JSX.Element;
-  role: "admin" | "user";
-}
+const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
+  const userEmail = localStorage.getItem("userEmail");
 
-const ProtectedRoute = ({ children, role }: Props) => {
-  const isAuth = localStorage.getItem("isAuthenticated");
-  const userRole = localStorage.getItem("userRole"); // 👈 SAME KEY
-
-  if (!isAuth) {
+  if (!userEmail) {
     return <Navigate to="/login" replace />;
-  }
-
-  if (role !== userRole) {
-    return <Navigate to="/" replace />;
   }
 
   return children;

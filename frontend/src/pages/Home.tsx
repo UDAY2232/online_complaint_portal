@@ -20,13 +20,15 @@ const Home = () => {
     const role = localStorage.getItem("role");
 
     if (isAuth && role === "admin") {
-      navigate("/admin/dashboard");
+      navigate("/admin/dashboard", { replace: true });
+      return;
     }
 
     if (isAuth && role === "user") {
-      navigate("/user/dashboard");
+      navigate("/user/dashboard", { replace: true });
+      return;
     }
-  }, [navigate]);
+  }, []); // Empty dependency array - only run once on mount
 
   const outcomes = [
     { icon: Shield, text: "Anonymous or verified complaint submission" },

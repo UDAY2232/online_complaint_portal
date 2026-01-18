@@ -1,6 +1,8 @@
 import axios from "axios";
 
-const API_BASE_URL = "https://online-complaint-backend.onrender.com/api";
+// Use local backend for testing, change back to production URL before deploying
+const API_BASE_URL = "http://localhost:3856/api";
+// const API_BASE_URL = "https://online-complaint-backend.onrender.com/api";
 
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
@@ -20,6 +22,10 @@ export const api = {
       status,
       changed_by,
     }),
+
+  // 🔥 RESOLVE COMPLAINT (ADMIN - WITH IMAGE)
+  resolveComplaint: (id: number, formData: FormData) =>
+    axiosInstance.post(`/complaints/${id}/resolve`, formData),
 
   // ================= ESCALATIONS =================
   getEscalations: () =>
