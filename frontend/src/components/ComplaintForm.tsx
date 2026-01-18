@@ -24,38 +24,50 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!category || !description || !priority) {
+      toast({
+        title: "Missing fields",
+        description: "Please fill all required fields",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
+      setLoading(true);
+
       const userEmail = localStorage.getItem("userEmail");
 
       const formData = new FormData();
       formData.append("category", category);
       formData.append("description", description);
       formData.append("priority", priority);
-      formData.append("email", userEmail || "");
-      formData.append("name", userEmail ? userEmail.split("@")[0] : "");
-      formData.append("is_anonymous", (!userEmail).toString());
+
+      if (userEmail) {
+        formData.append("email", userEmail);
+        formData.append("name", userEmail.split("@")[0]);
+        formData.append("is_anonymous", "0");
+      } else {
+        formData.append("is_anonymous", "1");
+      }
 
       if (file) {
-        formData.append("image", file); // 🔥 backend expects "image"
+        formData.append("image", file); // ✅ backend expects "image"
       }
 
       const res = await axios.post(
         "https://online-complaint-backend.onrender.com/api/complaints",
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        }
+        formData
       );
 
       toast({
         title: "Complaint submitted",
-        description: "Complaint submitted successfully",
+        description: "Your complaint has been submitted successfully",
       });
 
       setCategory("");
@@ -71,14 +83,17 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
         description: "Failed to submit complaint",
         variant: "destructive",
       });
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* CATEGORY */}
       <div className="space-y-2">
         <Label>Complaint Category</Label>
-        <Select value={category} onValueChange={setCategory} required>
+        <Select value={category} onValueChange={setCategory}>
           <SelectTrigger>
             <SelectValue placeholder="Select category" />
           </SelectTrigger>
@@ -91,19 +106,21 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
         </Select>
       </div>
 
+      {/* DESCRIPTION */}
       <div className="space-y-2">
         <Label>Description</Label>
         <Textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          required
           rows={6}
+          required
         />
       </div>
 
+      {/* PRIORITY */}
       <div className="space-y-2">
         <Label>Priority</Label>
-        <Select value={priority} onValueChange={setPriority} required>
+        <Select value={priority} onValueChange={setPriority}>
           <SelectTrigger>
             <SelectValue placeholder="Select priority" />
           </SelectTrigger>
@@ -115,6 +132,7 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
         </Select>
       </div>
 
+      {/* IMAGE */}
       <div className="space-y-2">
         <Label>Upload Evidence (Optional)</Label>
         <Input
@@ -124,8 +142,8 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
         />
       </div>
 
-      <Button type="submit" className="w-full">
-        Submit Complaint
+      <Button type="submit" className="w-full" disabled={loading}>
+        {loading ? "Submitting..." : "Submit Complaint"}
       </Button>
     </form>
   );
