@@ -2,13 +2,13 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2");
-const { v4: uuidv4 } = require("uuid");
 
 const upload = require("./utils/multer");
 const cloudinary = require("./utils/cloudinary");
 
 const app = express();
-app.use(cors()); // ❌ bodyParser.json() REMOVE
+app.use(cors());
+app.use(express.json());
 
 // ================= DATABASE =================
 const db = mysql.createConnection({
@@ -20,12 +20,18 @@ const db = mysql.createConnection({
   ssl: { rejectUnauthorized: false },
 });
 
-db.connect(() => console.log("✅ MySQL Connected"));
+db.connect((err) => {
+  if (err) {
+    console.error("❌ MySQL connection failed:", err);
+    return;
+  }
+  console.log("✅ MySQL Connected");
+});
 
 // ================= CREATE COMPLAINT =================
 app.post(
   "/api/complaints",
-  upload.single("image"), // 🔥 MUST match frontend
+  upload.single("image"),
   async (req, res) => {
     try {
       const { category, description, email, name, priority, is_anonymous } =
@@ -64,14 +70,14 @@ app.post(
         problem_image_url: imageUrl,
       });
     } catch (err) {
-      console.error(err);
+      console.error("❌ Complaint submit error:", err);
       res.status(500).json({ error: "Failed to submit complaint" });
     }
   }
 );
 
 // ================= SERVER =================
-const PORT = process.env.PORT || 10000;
+const PORT = process.env.PORT || 3856;
 app.listen(PORT, () =>
   console.log(`🚀 Backend running on port ${PORT}`)
 );
