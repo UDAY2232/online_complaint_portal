@@ -1,43 +1,47 @@
-import axios from 'axios';
+import axios from "axios";
 
-const API_BASE_URL = "https://online-complaint-backend.onrender.com";
-;
+const API_BASE_URL = "https://online-complaint-backend.onrender.com/api";
+
+const axiosInstance = axios.create({
+  baseURL: API_BASE_URL,
+});
 
 export const api = {
-  // Complaints
-  getComplaints: () => 
-    axios.get(`${API_BASE_URL}/complaints`),
-  
-  createComplaint: (complaint: {
-    category: string;
-    description: string;
-    email?: string;
-    name?: string;
-    priority: string;
-    is_anonymous: boolean;
-  }) => 
-    axios.post(`${API_BASE_URL}/complaints`, complaint),
-  
+  // ================= COMPLAINTS =================
+  getComplaints: () =>
+    axiosInstance.get("/complaints"),
+
+  // 🔥 CREATE COMPLAINT (WITH IMAGE)
+  createComplaint: (formData: FormData) =>
+    axiosInstance.post("/complaints", formData),
+
   updateComplaintStatus: (id: number, status: string, changed_by?: string) =>
-    axios.put(`${API_BASE_URL}/complaints/${id}`, { status, changed_by }),
+    axiosInstance.put(`/complaints/${id}`, {
+      status,
+      changed_by,
+    }),
 
-  // Escalations
+  // ================= ESCALATIONS =================
   getEscalations: () =>
-    axios.get(`${API_BASE_URL}/escalations`),
-  
-  checkEscalations: () =>
-    axios.post(`${API_BASE_URL}/complaints/check-escalations`),
+    axiosInstance.get("/escalations"),
 
-  // Users
+  checkEscalations: () =>
+    axiosInstance.post("/complaints/check-escalations"),
+
+  // ================= USER ROLES =================
   getUserRoles: () =>
-    axios.get(`${API_BASE_URL}/user-roles`),
+    axiosInstance.get("/user-roles"),
+
   createUser: (user: { email: string; role?: string }) =>
-    axios.post(`${API_BASE_URL}/user-roles`, user),
+    axiosInstance.post("/user-roles", user),
+
   updateUser: (id: number, patch: { role?: string }) =>
-    axios.put(`${API_BASE_URL}/user-roles/${id}`, patch),
-  // Anonymous tracking
+    axiosInstance.put(`/user-roles/${id}`, patch),
+
+  // ================= ANONYMOUS TRACK =================
   getTrack: (trackingId: string) =>
-    axios.get(`${API_BASE_URL}/track/${trackingId}`),
+    axiosInstance.get(`/track/${trackingId}`),
+
   getComplaintHistory: (id: number) =>
-    axios.get(`${API_BASE_URL}/complaints/${id}/history`),
+    axiosInstance.get(`/complaints/${id}/history`),
 };

@@ -7,6 +7,8 @@ const Navbar = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
+  
+
   const handleLogout = () => {
     localStorage.removeItem("isAuthenticated");
     localStorage.removeItem("userRole");
