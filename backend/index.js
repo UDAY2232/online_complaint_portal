@@ -32,7 +32,7 @@ db.connect((err) => {
 // ================= CREATE COMPLAINT =================
 app.post(
   "/api/complaints",
-  upload.single("file"), // 🔑 MUST match frontend key
+  upload.single("image"), // 🔑 MUST match frontend key
   async (req, res) => {
     try {
       const {
