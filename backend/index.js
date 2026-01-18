@@ -1,5 +1,4 @@
 require("dotenv").config();
-
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2");
@@ -9,7 +8,7 @@ const upload = require("./utils/multer");
 const cloudinary = require("./utils/cloudinary");
 
 const app = express();
-app.use(cors());
+app.use(cors()); // ❌ bodyParser.json() REMOVE
 
 // ================= DATABASE =================
 const db = mysql.createConnection({
@@ -21,41 +20,31 @@ const db = mysql.createConnection({
   ssl: { rejectUnauthorized: false },
 });
 
-db.connect((err) => {
-  if (err) {
-    console.error("❌ MySQL error", err);
-    return;
-  }
-  console.log("✅ MySQL Connected");
-});
+db.connect(() => console.log("✅ MySQL Connected"));
 
 // ================= CREATE COMPLAINT =================
 app.post(
   "/api/complaints",
-  upload.single("image"), // 🔑 MUST match frontend key
+  upload.single("image"), // 🔥 MUST match frontend
   async (req, res) => {
     try {
-      const {
-        category,
-        description,
-        email,
-        name,
-        priority,
-        is_anonymous,
-      } = req.body;
+      const { category, description, email, name, priority, is_anonymous } =
+        req.body;
 
       let imageUrl = null;
 
       if (req.file) {
-        const uploadResult = await cloudinary.uploader.upload(
-          req.file.path,
+        const result = await cloudinary.uploader.upload(
+          `data:${req.file.mimetype};base64,${req.file.buffer.toString(
+            "base64"
+          )}`,
           { folder: "complaints" }
         );
-        imageUrl = uploadResult.secure_url;
+        imageUrl = result.secure_url;
       }
 
-      const [result] = await db.promise().query(
-        `INSERT INTO complaints 
+      const [resultDb] = await db.promise().query(
+        `INSERT INTO complaints
         (category, description, email, name, priority, is_anonymous, status, problem_image_url, created_at)
         VALUES (?, ?, ?, ?, ?, ?, 'new', ?, NOW())`,
         [
@@ -70,19 +59,19 @@ app.post(
       );
 
       res.status(201).json({
-        success: true,
-        id: result.insertId,
+        message: "Complaint submitted successfully",
+        id: resultDb.insertId,
         problem_image_url: imageUrl,
       });
     } catch (err) {
-      console.error("❌ Submit error:", err);
+      console.error(err);
       res.status(500).json({ error: "Failed to submit complaint" });
     }
   }
 );
 
 // ================= SERVER =================
-const PORT = process.env.PORT || 4000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () =>
   console.log(`🚀 Backend running on port ${PORT}`)
 );
