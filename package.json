@@ -7,5 +7,9 @@
     "build": "cd frontend && npm run build",
     "preview": "cd frontend && npm run preview",
     "lint": "cd frontend && npm run lint"
+  },
+  "dependencies": {
+    "cloudinary": "^2.9.0",
+    "multer": "^2.0.2"
   }
 }
