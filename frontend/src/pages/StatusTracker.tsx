@@ -17,12 +17,16 @@ interface Complaint {
   status: string;
   date: string;
   name?: string;
+  resolution_message?: string | null;
+  resolved_image_url?: string | null;
+  problem_image_url?: string | null;
 }
 
 const StatusTracker = () => {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
   const { toast } = useToast();
   const userEmail = localStorage.getItem("userEmail") || "User";
 
@@ -30,14 +34,21 @@ const StatusTracker = () => {
     const fetchComplaints = async () => {
       try {
         const res = await api.getComplaints();
-        const data = res.data.map((c: any) => ({ ...c, date: c.date || c.created_at }));
+        const data = res.data.map((c: any) => ({
+          ...c,
+          date: c.date || c.created_at,
+          // Ensure nullable fields are handled
+          resolution_message: c.resolution_message ?? null,
+          resolved_image_url: c.resolved_image_url ?? null,
+          problem_image_url: c.problem_image_url ?? null,
+        }));
         const filtered = data.filter((c: any) => c.email === userEmail);
         setComplaints(filtered.reverse());
       } catch (err) {
         console.error("Failed to load complaints from API, falling back to localStorage", err);
         const stored = JSON.parse(localStorage.getItem("complaints") || "[]");
         setComplaints(stored.filter((c: any) => c.name === (userEmail || "User")).reverse());
-        toast({ title: 'Error', description: 'Failed to load complaints from API', variant: 'destructive' });
+        toast({ title: 'Error', description: 'Failed to load complaints from server', variant: 'destructive' });
       }
     };
 
@@ -46,6 +57,10 @@ const StatusTracker = () => {
 
   const openHistory = async (complaintId: number) => {
     try {
+      // Find the complaint from the list to show its details
+      const complaint = complaints.find(c => c.id === complaintId) || null;
+      setSelectedComplaint(complaint);
+      
       const res = await api.getComplaintHistory(complaintId);
       setHistoryData(res.data || []);
       setIsHistoryOpen(true);
@@ -53,6 +68,12 @@ const StatusTracker = () => {
       console.error('Failed to load history', err);
       toast({ title: 'Error', description: 'Failed to load complaint history', variant: 'destructive' });
     }
+  };
+
+  const handleCloseHistory = () => {
+    setIsHistoryOpen(false);
+    setSelectedComplaint(null);
+    setHistoryData([]);
   };
 
   const getStatusSteps = (currentStatus: string) => {
@@ -200,27 +221,72 @@ const StatusTracker = () => {
         </main>
       </div>
       {/* History dialog */}
-      <Dialog open={isHistoryOpen} onOpenChange={setIsHistoryOpen}>
-        <DialogContent>
+      <Dialog open={isHistoryOpen} onOpenChange={handleCloseHistory}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Complaint Progress</DialogTitle>
             <DialogDescription>Timeline of status changes</DialogDescription>
           </DialogHeader>
-          {historyData.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No history available.</p>
+          
+          {/* Before Image - User uploaded problem image */}
+          {selectedComplaint?.problem_image_url ? (
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Before (User Uploaded Image)</p>
+              <img
+                src={selectedComplaint.problem_image_url}
+                alt="Problem"
+                className="w-full max-h-48 object-contain rounded-lg border"
+              />
+            </div>
           ) : (
-            <div className="space-y-3">
-              {historyData.map((h) => (
-                <div key={h.id} className="p-3 border rounded">
-                  <div className="flex items-center justify-between">
-                    <div className="font-medium">{h.old_status} → {h.new_status}</div>
-                    <div className="text-xs text-muted-foreground">{new Date(h.changed_at).toLocaleString()}</div>
-                  </div>
-                  {h.changed_by && <div className="text-sm text-muted-foreground">By: {h.changed_by}</div>}
-                </div>
-              ))}
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Before (User Uploaded Image)</p>
+              <p className="text-sm text-muted-foreground">No image provided</p>
             </div>
           )}
+
+          {/* After Image & Resolution - Only show if resolved */}
+          {selectedComplaint?.status === "resolved" && (
+            <div className="space-y-4 border-t pt-4">
+              {selectedComplaint?.resolution_message ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Resolution Message</p>
+                  <p className="text-sm text-muted-foreground">{selectedComplaint.resolution_message}</p>
+                </div>
+              ) : null}
+              
+              {selectedComplaint?.resolved_image_url ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">After (Resolved Image)</p>
+                  <img
+                    src={selectedComplaint.resolved_image_url}
+                    alt="Resolution"
+                    className="w-full max-h-48 object-contain rounded-lg border"
+                  />
+                </div>
+              ) : null}
+            </div>
+          )}
+
+          {/* Status Timeline */}
+          <div className="border-t pt-4">
+            <p className="text-sm font-medium mb-3">Status Timeline</p>
+            {historyData.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No history available.</p>
+            ) : (
+              <div className="space-y-3">
+                {historyData.map((h) => (
+                  <div key={h.id} className="p-3 border rounded">
+                    <div className="flex items-center justify-between">
+                      <div className="font-medium">{h.old_status ?? 'Created'} → {h.new_status}</div>
+                      <div className="text-xs text-muted-foreground">{new Date(h.changed_at).toLocaleString()}</div>
+                    </div>
+                    {h.changed_by && <div className="text-sm text-muted-foreground">By: {h.changed_by}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

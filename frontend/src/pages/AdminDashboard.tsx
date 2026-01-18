@@ -25,9 +25,10 @@ interface Complaint {
   anonymous?: boolean;
   escalation_status?: string;
   escalated_at?: string;
-  problem_image_url?: string;
-  resolved_image_url?: string;
-  admin_message?: string;
+  problem_image_url?: string | null;
+  resolved_image_url?: string | null;
+  admin_message?: string | null;
+  resolution_message?: string | null;
 }
 
 const AdminDashboard = () => {

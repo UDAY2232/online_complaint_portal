@@ -2,6 +2,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2");
+const nodemailer = require("nodemailer");
 
 const upload = require("./utils/multer");
 const cloudinary = require("./utils/cloudinary");
@@ -9,6 +10,94 @@ const cloudinary = require("./utils/cloudinary");
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// ================= EMAIL CONFIGURATION =================
+console.log("📧 Email Config:", {
+  host: process.env.EMAIL_HOST,
+  port: process.env.EMAIL_PORT,
+  user: process.env.EMAIL_USER ? "✅ Set" : "❌ Not set",
+  pass: process.env.EMAIL_PASS ? "✅ Set" : "❌ Not set",
+});
+
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST,
+  port: Number(process.env.EMAIL_PORT) || 587,
+  secure: false, // Use TLS
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
+
+// Verify transporter connection
+transporter.verify((error, success) => {
+  if (error) {
+    console.error("📧 ❌ Email transporter verification failed:", error.message);
+  } else {
+    console.log("📧 ✅ Email transporter ready to send");
+  }
+});
+
+// ================= SEND EMAIL FUNCTION =================
+const sendResolutionEmail = async (complaint) => {
+  try {
+    console.log("📧 Attempting to send email for complaint:", complaint.id);
+    console.log("📧 User email:", complaint.email || "NO EMAIL");
+
+    // Only send if user email exists
+    if (!complaint.email) {
+      console.log("📧 ⚠️ No email address - skipping notification");
+      return;
+    }
+
+    const resolvedImageSection = complaint.resolved_image_url
+      ? `<p><strong>Resolution Image:</strong></p>
+         <img src="${complaint.resolved_image_url}" alt="Resolution" style="max-width: 400px; border-radius: 8px;" />`
+      : "";
+
+    const mailOptions = {
+      from: `"Complaint Portal" <${process.env.EMAIL_USER}>`,
+      to: complaint.email,
+      subject: `Your Complaint #${complaint.id} Has Been Resolved`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #22c55e;">✅ Your Complaint Has Been Resolved</h2>
+          
+          <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Complaint ID:</strong> #${complaint.id}</p>
+            <p><strong>Category:</strong> ${complaint.category}</p>
+            <p><strong>Status:</strong> <span style="color: #22c55e; font-weight: bold;">Resolved</span></p>
+          </div>
+          
+          ${complaint.resolution_message ? `
+          <div style="margin: 20px 0;">
+            <h3>Resolution Message:</h3>
+            <p style="background-color: #ecfdf5; padding: 15px; border-radius: 8px; border-left: 4px solid #22c55e;">
+              ${complaint.resolution_message}
+            </p>
+          </div>
+          ` : ""}
+          
+          ${resolvedImageSection}
+          
+          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
+          
+          <p style="color: #6b7280; font-size: 14px;">
+            Thank you for using our Complaint Portal. If you have any further questions, please don't hesitate to reach out.
+          </p>
+        </div>
+      `,
+    };
+
+    console.log("📧 Sending email to:", complaint.email);
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`📧 ✅ Resolution email sent to: ${complaint.email}`);
+    console.log("📧 Message ID:", info.messageId);
+  } catch (err) {
+    console.error(`📧 ❌ Failed to send email to ${complaint.email}:`, err.message);
+    console.error("📧 Full error:", err);
+  }
+};
 
 // ================= DATABASE =================
 
@@ -191,6 +280,12 @@ app.put(
         .query("SELECT * FROM complaints WHERE id = ?", [id]);
 
       console.log("✅ Complaint resolved successfully");
+
+      // Send email notification (non-blocking)
+      sendResolutionEmail(updated[0]).catch(err => {
+        console.error("📧 Email sending failed in background:", err.message);
+      });
+
       res.json({
         success: true,
         message: "Complaint resolved successfully",
@@ -260,6 +355,12 @@ app.post(
         .query("SELECT * FROM complaints WHERE id = ?", [id]);
 
       console.log("✅ Complaint resolved successfully");
+
+      // Send email notification (non-blocking)
+      sendResolutionEmail(updated[0]).catch(err => {
+        console.error("📧 Email sending failed in background:", err.message);
+      });
+
       res.json({
         success: true,
         message: "Complaint resolved successfully",
@@ -276,6 +377,65 @@ app.post(
     }
   }
 );
+
+// ================= GET COMPLAINT HISTORY =================
+app.get("/api/complaints/:id/history", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get the complaint details
+    const [complaint] = await db
+      .promise()
+      .query("SELECT * FROM complaints WHERE id = ?", [id]);
+
+    if (complaint.length === 0) {
+      return res.status(404).json({ error: "Complaint not found" });
+    }
+
+    const c = complaint[0];
+    
+    // Build history timeline based on complaint data
+    const history = [];
+
+    // Entry 1: Complaint created
+    history.push({
+      id: 1,
+      old_status: null,
+      new_status: "new",
+      changed_at: c.created_at,
+      changed_by: c.is_anonymous ? "Anonymous" : (c.name || c.email || "User"),
+    });
+
+    // Entry 2: If status is under-review or resolved, add under-review step
+    if (c.status === "under-review" || c.status === "resolved") {
+      history.push({
+        id: 2,
+        old_status: "new",
+        new_status: "under-review",
+        changed_at: c.created_at, // We don't have exact timestamp, use created_at
+        changed_by: "Admin",
+      });
+    }
+
+    // Entry 3: If resolved, add resolved step
+    if (c.status === "resolved") {
+      history.push({
+        id: 3,
+        old_status: "under-review",
+        new_status: "resolved",
+        changed_at: c.resolved_at || c.created_at,
+        changed_by: "Admin",
+        resolution_message: c.resolution_message || null,
+        resolved_image_url: c.resolved_image_url || null,
+      });
+    }
+
+    res.json(history);
+  } catch (err) {
+    console.error("❌ Get complaint history error:", err);
+    res.status(500).json({ error: "Failed to fetch complaint history" });
+  }
+});
 
 // ================= SERVER =================
 const PORT = process.env.PORT || 4000;
