@@ -14,25 +14,38 @@ const Login = () => {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"user" | "admin">("user");
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Mock authentication - store in localStorage
-    localStorage.setItem("isAuthenticated", "true");
-    localStorage.setItem("userRole", role);
-    localStorage.setItem("userEmail", email);
-    
-    toast({
-      title: "Login successful",
-      description: `Welcome back!`,
-    });
+const handleLogin = (e: React.FormEvent) => {
+  e.preventDefault();
 
-    if (role === "admin") {
-      navigate("/admin/dashboard");
-    } else {
-      navigate("/user/dashboard");
-    }
-  };
+  const ADMIN_EMAIL = "admin@example.com"; // 👈 only this email is admin
+
+  let assignedRole: "user" | "admin" = "user";
+
+  if (email === ADMIN_EMAIL) {
+    assignedRole = "admin";
+  }
+
+  // Mock auth (demo purpose)
+  localStorage.setItem("token", "mock-token");
+  localStorage.setItem("role", assignedRole);
+  localStorage.setItem("userEmail", email);
+
+  toast({
+    title: "Login successful",
+    description:
+      assignedRole === "admin"
+        ? "Welcome Admin"
+        : "Welcome User",
+  });
+
+  if (assignedRole === "admin") {
+    navigate("/admin/dashboard");
+  } else {
+    navigate("/user/dashboard");
+  }
+};
+
+
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-secondary to-background p-4">

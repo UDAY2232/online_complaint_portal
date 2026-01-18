@@ -1,11 +1,12 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:4000/api';
+const API_BASE_URL = "https://online-complaint-backend.onrender.com";
+;
 
 export const api = {
   // Complaints
   getComplaints: () => 
-    axios.get(`${API_URL}/complaints`),
+    axios.get(`${API_BASE_URL}/complaints`),
   
   createComplaint: (complaint: {
     category: string;
@@ -15,28 +16,28 @@ export const api = {
     priority: string;
     is_anonymous: boolean;
   }) => 
-    axios.post(`${API_URL}/complaints`, complaint),
+    axios.post(`${API_BASE_URL}/complaints`, complaint),
   
   updateComplaintStatus: (id: number, status: string, changed_by?: string) =>
-    axios.put(`${API_URL}/complaints/${id}`, { status, changed_by }),
+    axios.put(`${API_BASE_URL}/complaints/${id}`, { status, changed_by }),
 
   // Escalations
   getEscalations: () =>
-    axios.get(`${API_URL}/escalations`),
+    axios.get(`${API_BASE_URL}/escalations`),
   
   checkEscalations: () =>
-    axios.post(`${API_URL}/complaints/check-escalations`),
+    axios.post(`${API_BASE_URL}/complaints/check-escalations`),
 
   // Users
   getUserRoles: () =>
-    axios.get(`${API_URL}/user-roles`),
+    axios.get(`${API_BASE_URL}/user-roles`),
   createUser: (user: { email: string; role?: string }) =>
-    axios.post(`${API_URL}/user-roles`, user),
+    axios.post(`${API_BASE_URL}/user-roles`, user),
   updateUser: (id: number, patch: { role?: string }) =>
-    axios.put(`${API_URL}/user-roles/${id}`, patch),
+    axios.put(`${API_BASE_URL}/user-roles/${id}`, patch),
   // Anonymous tracking
   getTrack: (trackingId: string) =>
-    axios.get(`${API_URL}/track/${trackingId}`),
+    axios.get(`${API_BASE_URL}/track/${trackingId}`),
   getComplaintHistory: (id: number) =>
-    axios.get(`${API_URL}/complaints/${id}/history`),
+    axios.get(`${API_BASE_URL}/complaints/${id}/history`),
 };
