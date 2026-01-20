@@ -5,14 +5,20 @@ import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
 
 import { useToast } from "@/hooks/use-toast";
+import { api } from "@/lib/api";
 
 interface EscalationRecord {
-  id: string;
-  complaint_id: string;
-  escalated_to: string;
-  escalated_at: string;
-  reason: string;
-  notes: string;
+  id: number;
+  complaint_id?: number;
+  category?: string;
+  description?: string;
+  priority?: string;
+  status?: string;
+  email?: string;
+  escalation_level?: number;
+  escalated_at?: string;
+  escalation_reason?: string;
+  created_at?: string;
 }
 
 const EscalationHistory = () => {
@@ -26,8 +32,8 @@ const EscalationHistory = () => {
 
   const fetchEscalations = async () => {
     try {
-      // TODO: Replace with backend call to fetch escalation history
-      setEscalations([]); // Demo: no data
+      const response = await api.getEscalations();
+      setEscalations(response.data || []);
     } catch (error: any) {
       console.error("Error fetching escalations:", error);
       toast({
@@ -38,6 +44,21 @@ const EscalationHistory = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const getPriorityColor = (priority?: string) => {
+    switch (priority) {
+      case 'high': return 'bg-red-500';
+      case 'medium': return 'bg-yellow-500';
+      case 'low': return 'bg-green-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  const getEscalationBadge = (level?: number) => {
+    if (!level || level <= 1) return <Badge variant="destructive">Level 1</Badge>;
+    if (level === 2) return <Badge variant="destructive" className="bg-orange-600">Level 2</Badge>;
+    return <Badge variant="destructive" className="bg-red-800">Level {level} - Critical</Badge>;
   };
 
   return (
@@ -69,31 +90,64 @@ const EscalationHistory = () => {
                 </Card>
               ) : (
                 escalations.map((escalation) => (
-                  <Card key={escalation.id}>
+                  <Card key={escalation.id} className="border-l-4 border-l-red-500">
                     <CardHeader>
                       <CardTitle className="flex items-center justify-between">
-                        <span>Complaint #{escalation.complaint_id.slice(0, 8)}</span>
-                        <Badge variant="destructive">Escalated</Badge>
+                        <div className="flex items-center gap-3">
+                          <span>Complaint #{escalation.id}</span>
+                          <Badge className={getPriorityColor(escalation.priority)}>
+                            {escalation.priority?.toUpperCase()}
+                          </Badge>
+                        </div>
+                        {getEscalationBadge(escalation.escalation_level)}
                       </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-3">
-                      <div>
-                        <p className="text-sm font-medium">Escalated At</p>
-                        <p className="text-sm text-muted-foreground">
-                          {new Date(escalation.escalated_at).toLocaleString()}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">Reason</p>
-                        <p className="text-sm text-muted-foreground">
-                          {escalation.reason}
-                        </p>
-                      </div>
-                      {escalation.notes && (
+                      <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <p className="text-sm font-medium">Notes</p>
+                          <p className="text-sm font-medium">Category</p>
                           <p className="text-sm text-muted-foreground">
-                            {escalation.notes}
+                            {escalation.category}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">Status</p>
+                          <Badge variant="outline">{escalation.status}</Badge>
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">Description</p>
+                        <p className="text-sm text-muted-foreground line-clamp-2">
+                          {escalation.description}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <p className="text-sm font-medium">Submitted</p>
+                          <p className="text-sm text-muted-foreground">
+                            {escalation.created_at ? new Date(escalation.created_at).toLocaleString() : 'N/A'}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium">Escalated At</p>
+                          <p className="text-sm text-muted-foreground">
+                            {escalation.escalated_at ? new Date(escalation.escalated_at).toLocaleString() : 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+                      {escalation.escalation_reason && (
+                        <div>
+                          <p className="text-sm font-medium">Escalation Reason</p>
+                          <p className="text-sm text-red-600">
+                            {escalation.escalation_reason}
+                          </p>
+                        </div>
+                      )}
+                      {escalation.email && (
+                        <div>
+                          <p className="text-sm font-medium">User Email</p>
+                          <p className="text-sm text-muted-foreground">
+                            {escalation.email}
                           </p>
                         </div>
                       )}

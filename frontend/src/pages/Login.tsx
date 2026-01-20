@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 
-const ADMIN_EMAIL = "admin@example.com"; // 👈 only this is admin
+const ADMIN_EMAIL = "complaintportals@gmail.com"; // 👈 only this is admin
 
 const Login = () => {
   const navigate = useNavigate();
@@ -68,7 +68,17 @@ const Login = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <Button
+                  variant="link"
+                  className="p-0 h-auto text-xs"
+                  onClick={() => navigate("/forgot-password")}
+                  type="button"
+                >
+                  Forgot password?
+                </Button>
+              </div>
               <Input
                 id="password"
                 type="password"

@@ -10,6 +10,7 @@ import {
   CheckCircle2,
   Users,
 } from "lucide-react";
+import Footer from "@/components/Footer";
 
 const Home = () => {
   const navigate = useNavigate();
@@ -117,6 +118,7 @@ const Home = () => {
           </Card>
         </div>
       </div>
+      <Footer />
     </div>
   );
 };
