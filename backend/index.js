@@ -19,13 +19,13 @@ console.log("📧 Email Config:", {
   pass: process.env.EMAIL_PASS ? "✅ Set" : "❌ Not set",
 });
 
+let emailEnabled = false;
+
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: Number(process.env.EMAIL_PORT) || 587,
-  secure: false, // Use TLS
+  service: "gmail", // Use Gmail service instead of manual host/port
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    pass: process.env.EMAIL_PASS?.replace(/\s/g, ""), // Remove spaces from app password
   },
 });
 
@@ -33,8 +33,11 @@ const transporter = nodemailer.createTransport({
 transporter.verify((error, success) => {
   if (error) {
     console.error("📧 ❌ Email transporter verification failed:", error.message);
+    console.log("📧 ⚠️ Email notifications will be disabled");
+    emailEnabled = false;
   } else {
     console.log("📧 ✅ Email transporter ready to send");
+    emailEnabled = true;
   }
 });
 
@@ -43,6 +46,13 @@ const sendResolutionEmail = async (complaint) => {
   try {
     console.log("📧 Attempting to send email for complaint:", complaint.id);
     console.log("📧 User email:", complaint.email || "NO EMAIL");
+    console.log("📧 Email enabled:", emailEnabled);
+
+    // Skip if email is not configured properly
+    if (!emailEnabled) {
+      console.log("📧 ⚠️ Email is disabled - skipping notification");
+      return;
+    }
 
     // Only send if user email exists
     if (!complaint.email) {
