@@ -35,15 +35,7 @@ const App = () => (
           <Route path="/signup" element={<Signup />} />
           <Route path="/anonymous" element={<AnonymousComplaint />} />
           
-          <Route
-  path="/admin/dashboard"
-  element={
-    <ProtectedRoute role="admin">
-      <AdminDashboard />
-    </ProtectedRoute>
-  }
-/>
-
+          {/* User Routes */}
           <Route
             path="/user/dashboard"
             element={
@@ -68,6 +60,8 @@ const App = () => (
               </ProtectedRoute>
             }
           />
+
+          {/* Admin Routes */}
           <Route
             path="/admin/dashboard"
             element={

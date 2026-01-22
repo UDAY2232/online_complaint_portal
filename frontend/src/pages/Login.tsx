@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,8 +11,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-
-const ADMIN_EMAIL = "complaintportals@gmail.com"; // 👈 only this is admin
+import { api } from "@/lib/api";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -20,26 +20,63 @@ const Login = () => {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  // Check if already logged in and redirect
+  useEffect(() => {
+    const isAuthenticated = localStorage.getItem("isAuthenticated") === "true";
+    const userRole = localStorage.getItem("userRole");
+    
+    if (isAuthenticated && userRole) {
+      if (userRole === "admin" || userRole === "superadmin") {
+        navigate("/admin/dashboard", { replace: true });
+      } else {
+        navigate("/user/dashboard", { replace: true });
+      }
+    }
+  }, [navigate]);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
 
-    const role = email === ADMIN_EMAIL ? "admin" : "user";
+    try {
+      const response = await api.login(email, password);
+      const { accessToken, refreshToken, user } = response.data;
 
-    // 🔐 Mock authentication (demo purpose)
-    localStorage.setItem("isAuthenticated", "true");
-    localStorage.setItem("userRole", role);
-    localStorage.setItem("userEmail", email);
+      // Store authentication data
+      localStorage.setItem("isAuthenticated", "true");
+      localStorage.setItem("accessToken", accessToken);
+      localStorage.setItem("refreshToken", refreshToken);
+      localStorage.setItem("userEmail", user.email);
+      localStorage.setItem("userName", user.name || "");
+      localStorage.setItem("userRole", user.role);
+      localStorage.setItem("userId", user.id.toString());
 
-    toast({
-      title: "Login successful",
-      description: role === "admin" ? "Welcome Admin" : "Welcome User",
-    });
+      toast({
+        title: "Login successful",
+        description: user.role === "admin" || user.role === "superadmin" 
+          ? "Welcome Admin!" 
+          : "Welcome back!",
+      });
 
-    if (role === "admin") {
-      navigate("/admin/dashboard");
-    } else {
-      navigate("/user/dashboard");
+      // Redirect based on role
+      if (user.role === "admin" || user.role === "superadmin") {
+        navigate("/admin/dashboard");
+      } else {
+        navigate("/user/dashboard");
+      }
+    } catch (err: any) {
+      console.error("Login error:", err);
+      const errorMessage = err.response?.data?.error || "Login failed. Please check your credentials.";
+      toast({
+        variant: "destructive",
+        title: "Login failed",
+        description: errorMessage,
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -64,6 +101,7 @@ const Login = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
+                disabled={isLoading}
               />
             </div>
 
@@ -79,17 +117,40 @@ const Login = () => {
                   Forgot password?
                 </Button>
               </div>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={isLoading}
+                />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                  onClick={() => setShowPassword(!showPassword)}
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-muted-foreground" />
+                  )}
+                </Button>
+              </div>
             </div>
 
-            <Button type="submit" className="w-full">
-              Login
+            <Button type="submit" className="w-full" disabled={isLoading}>
+              {isLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Logging in...
+                </>
+              ) : (
+                "Login"
+              )}
             </Button>
           </form>
 

@@ -1,0 +1,236 @@
+/**
+ * Admin Routes
+ * Protected routes for admin-only operations
+ */
+
+const express = require('express');
+const router = express.Router();
+const { authenticate, requireAdmin, requireSuperadmin } = require('../middleware/auth');
+const { getEscalationStats } = require('../services/escalationService');
+const { triggerEscalationCheck } = require('../services/scheduler');
+
+/**
+ * Initialize admin routes with database connection
+ * @param {object} db - MySQL database connection
+ */
+const initAdminRoutes = (db) => {
+
+  // Apply authentication and admin role check to all routes
+  router.use(authenticate);
+  router.use(requireAdmin);
+
+  // ================= GET ESCALATION STATS =================
+  router.get('/escalation-stats', async (req, res) => {
+    try {
+      const stats = await getEscalationStats(db);
+      res.json(stats);
+    } catch (err) {
+      console.error('Get escalation stats error:', err);
+      res.status(500).json({ error: 'Failed to get escalation stats' });
+    }
+  });
+
+  // ================= TRIGGER MANUAL ESCALATION CHECK =================
+  router.post('/trigger-escalation', async (req, res) => {
+    try {
+      const result = await triggerEscalationCheck(db);
+      res.json({
+        message: 'Escalation check completed',
+        ...result,
+      });
+    } catch (err) {
+      console.error('Trigger escalation error:', err);
+      res.status(500).json({ error: 'Failed to trigger escalation check' });
+    }
+  });
+
+  // ================= GET ALL USERS (Admin) =================
+  router.get('/users', async (req, res) => {
+    try {
+      const [users] = await db.promise().query(
+        'SELECT id, email, name, role, email_verified, created_at FROM users ORDER BY created_at DESC'
+      );
+      res.json(users);
+    } catch (err) {
+      console.error('Get users error:', err);
+      res.status(500).json({ error: 'Failed to fetch users' });
+    }
+  });
+
+  // ================= UPDATE USER ROLE (Superadmin only) =================
+  router.put('/users/:id/role', requireSuperadmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { role } = req.body;
+
+      const validRoles = ['user', 'admin', 'superadmin'];
+      if (!validRoles.includes(role)) {
+        return res.status(400).json({ error: 'Invalid role' });
+      }
+
+      await db.promise().query(
+        'UPDATE users SET role = ? WHERE id = ?',
+        [role, id]
+      );
+
+      res.json({ message: 'User role updated successfully' });
+    } catch (err) {
+      console.error('Update user role error:', err);
+      res.status(500).json({ error: 'Failed to update user role' });
+    }
+  });
+
+  // ================= DELETE USER (Superadmin only) =================
+  router.delete('/users/:id', requireSuperadmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      // Prevent self-deletion
+      if (parseInt(id) === req.user.id) {
+        return res.status(400).json({ error: 'Cannot delete your own account' });
+      }
+
+      await db.promise().query('DELETE FROM users WHERE id = ?', [id]);
+
+      res.json({ message: 'User deleted successfully' });
+    } catch (err) {
+      console.error('Delete user error:', err);
+      res.status(500).json({ error: 'Failed to delete user' });
+    }
+  });
+
+  // ================= GET ESCALATED COMPLAINTS =================
+  router.get('/escalated-complaints', async (req, res) => {
+    try {
+      const [complaints] = await db.promise().query(`
+        SELECT * FROM complaints 
+        WHERE escalation_level > 0 AND status != 'resolved'
+        ORDER BY escalation_level DESC, created_at ASC
+      `);
+      res.json(complaints);
+    } catch (err) {
+      console.error('Get escalated complaints error:', err);
+      res.status(500).json({ error: 'Failed to fetch escalated complaints' });
+    }
+  });
+
+  // ================= GET ESCALATION HISTORY FOR COMPLAINT =================
+  router.get('/complaints/:id/escalation-history', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const [history] = await db.promise().query(
+        'SELECT * FROM escalation_history WHERE complaint_id = ? ORDER BY created_at DESC',
+        [id]
+      );
+      res.json(history);
+    } catch (err) {
+      console.error('Get escalation history error:', err);
+      res.status(500).json({ error: 'Failed to fetch escalation history' });
+    }
+  });
+
+  // ================= GET ADMIN DASHBOARD STATS =================
+  router.get('/dashboard-stats', async (req, res) => {
+    try {
+      // Total complaints by status
+      const [statusStats] = await db.promise().query(`
+        SELECT status, COUNT(*) as count 
+        FROM complaints 
+        GROUP BY status
+      `);
+
+      // Total complaints by priority
+      const [priorityStats] = await db.promise().query(`
+        SELECT priority, COUNT(*) as count 
+        FROM complaints 
+        GROUP BY priority
+      `);
+
+      // Escalation stats
+      const escalationStats = await getEscalationStats(db);
+
+      // Recent activity (last 7 days)
+      const [recentActivity] = await db.promise().query(`
+        SELECT DATE(created_at) as date, COUNT(*) as count 
+        FROM complaints 
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        GROUP BY DATE(created_at)
+        ORDER BY date DESC
+      `);
+
+      // Average resolution time
+      const [avgResolution] = await db.promise().query(`
+        SELECT AVG(TIMESTAMPDIFF(HOUR, created_at, resolved_at)) as avg_hours
+        FROM complaints 
+        WHERE status = 'resolved' AND resolved_at IS NOT NULL
+      `);
+
+      res.json({
+        byStatus: statusStats,
+        byPriority: priorityStats,
+        escalation: escalationStats,
+        recentActivity,
+        avgResolutionHours: avgResolution[0]?.avg_hours || 0,
+      });
+    } catch (err) {
+      console.error('Get dashboard stats error:', err);
+      res.status(500).json({ error: 'Failed to fetch dashboard stats' });
+    }
+  });
+
+  // ================= WHITELIST MANAGEMENT (Superadmin only) =================
+  router.get('/admin-whitelist', requireSuperadmin, async (req, res) => {
+    try {
+      const [whitelist] = await db.promise().query(
+        'SELECT * FROM admin_whitelist ORDER BY created_at DESC'
+      );
+      res.json(whitelist);
+    } catch (err) {
+      console.error('Get admin whitelist error:', err);
+      res.status(500).json({ error: 'Failed to fetch admin whitelist' });
+    }
+  });
+
+  router.post('/admin-whitelist', requireSuperadmin, async (req, res) => {
+    try {
+      const { email } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ error: 'Email required' });
+      }
+
+      await db.promise().query(
+        'INSERT INTO admin_whitelist (email, created_at) VALUES (?, NOW())',
+        [email]
+      );
+
+      res.status(201).json({ message: 'Email added to admin whitelist' });
+    } catch (err) {
+      if (err.code === 'ER_DUP_ENTRY') {
+        return res.status(409).json({ error: 'Email already in whitelist' });
+      }
+      console.error('Add to admin whitelist error:', err);
+      res.status(500).json({ error: 'Failed to add to admin whitelist' });
+    }
+  });
+
+  router.delete('/admin-whitelist/:email', requireSuperadmin, async (req, res) => {
+    try {
+      const { email } = req.params;
+
+      await db.promise().query(
+        'DELETE FROM admin_whitelist WHERE email = ?',
+        [email]
+      );
+
+      res.json({ message: 'Email removed from admin whitelist' });
+    } catch (err) {
+      console.error('Remove from admin whitelist error:', err);
+      res.status(500).json({ error: 'Failed to remove from admin whitelist' });
+    }
+  });
+
+  return router;
+};
+
+module.exports = initAdminRoutes;
