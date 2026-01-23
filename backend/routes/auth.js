@@ -31,30 +31,37 @@ const initAuthRoutes = (db) => {
     try {
       const { email, password, name } = req.body;
 
+      console.log('📝 Signup attempt for:', email);
+
       if (!email || !password) {
         return res.status(400).json({ error: 'Email and password are required' });
       }
 
-      // Check if user already exists
+      // Check if user already exists (case-insensitive)
       const [existing] = await db.promise().query(
-        'SELECT * FROM users WHERE email = ?',
+        'SELECT * FROM users WHERE LOWER(email) = LOWER(?)',
         [email]
       );
 
       if (existing.length > 0) {
+        console.log('📝 User already exists:', email);
         return res.status(409).json({ error: 'User with this email already exists' });
       }
 
-      // Hash password
+      // Hash password with bcrypt
       const saltRounds = 10;
       const passwordHash = await bcrypt.hash(password, saltRounds);
+      
+      console.log('📝 Password hashed, length:', passwordHash.length);
 
-      // Insert new user
+      // Insert new user (store email in lowercase for consistency)
       const [result] = await db.promise().query(
         `INSERT INTO users (email, password_hash, name, role, email_verified, created_at)
-         VALUES (?, ?, ?, ?, FALSE, NOW())`,
+         VALUES (LOWER(?), ?, ?, ?, FALSE, NOW())`,
         [email, passwordHash, name || null, ROLES.USER]
       );
+
+      console.log('📝 User created with ID:', result.insertId);
 
       // Generate email verification token
       const verificationToken = generateEmailVerificationToken(email);
@@ -80,15 +87,20 @@ const initAuthRoutes = (db) => {
     try {
       const { email, password } = req.body;
 
+      console.log('🔐 Login attempt for:', email);
+
       if (!email || !password) {
+        console.log('🔐 Missing email or password');
         return res.status(400).json({ error: 'Email and password are required' });
       }
 
-      // Find user
+      // Find user (case-insensitive email comparison)
       const [users] = await db.promise().query(
-        'SELECT * FROM users WHERE email = ?',
+        'SELECT * FROM users WHERE LOWER(email) = LOWER(?)',
         [email]
       );
+
+      console.log('🔐 User found:', users.length > 0 ? 'Yes' : 'No');
 
       if (users.length === 0) {
         return res.status(401).json({ error: 'Invalid email or password' });
@@ -96,8 +108,14 @@ const initAuthRoutes = (db) => {
 
       const user = users[0];
 
+      // Debug: Check password hash validity
+      console.log('🔐 Password hash length:', user.password_hash?.length || 0);
+      console.log('🔐 Password hash starts with $2:', user.password_hash?.startsWith('$2') ? 'Yes' : 'No');
+
       // Verify password
       const validPassword = await bcrypt.compare(password, user.password_hash);
+      console.log('🔐 Password valid:', validPassword ? 'Yes' : 'No');
+      
       if (!validPassword) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }

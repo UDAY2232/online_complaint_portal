@@ -1,8 +1,7 @@
 import axios from "axios";
 
-// Use local backend for testing, change back to production URL before deploying
+// Production URL for Render deployment
 // const API_BASE_URL = "http://localhost:4000/api";
-// const API_BASE_URL = "http://localhost:3856/api";
 const API_BASE_URL = "https://online-complaint-backend.onrender.com/api";
 
 const axiosInstance = axios.create({
