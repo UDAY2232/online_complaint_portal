@@ -53,7 +53,7 @@ const UserDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
   const navigate = useNavigate();
-  const userEmail = localStorage.getItem("userEmail") || "User";
+  const userName = localStorage.getItem("userName") || localStorage.getItem("userEmail") || "User";
 
   const fetchComplaints = async () => {
     setIsLoading(true);
@@ -140,7 +140,7 @@ const UserDashboard = () => {
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div>
-                    <CardTitle className="text-2xl">Welcome back, {userEmail}</CardTitle>
+                    <CardTitle className="text-2xl">Welcome back, {userName}</CardTitle>
                     <CardDescription className="mt-2">Here's an overview of your complaints</CardDescription>
                   </div>
                   <div className="flex gap-2">
