@@ -15,6 +15,7 @@ import UserDashboard from "./pages/UserDashboard";
 import UserSettings from "./pages/UserSettings";
 import StatusTracker from "./pages/StatusTracker";
 import AdminDashboard from "./pages/AdminDashboard";
+import AdminComplaints from "./pages/AdminComplaints";
 import AdminUsers from "./pages/AdminUsers";
 import AdminReports from "./pages/AdminReports";
 import EscalationHistory from "./pages/EscalationHistory";
@@ -67,6 +68,14 @@ const App = () => (
             element={
               <ProtectedRoute role="admin">
                 <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/complaints"
+            element={
+              <ProtectedRoute role="admin">
+                <AdminComplaints />
               </ProtectedRoute>
             }
           />

@@ -20,7 +20,7 @@ const Sidebar = ({ role }: SidebarProps) => {
 
   const adminLinks = [
     { label: "Dashboard", path: "/admin/dashboard", icon: Home },
-    { label: "All Complaints", path: "/admin/dashboard", icon: FileText },
+    { label: "All Complaints", path: "/admin/complaints", icon: FileText },
     { label: "Escalations", path: "/admin/escalations", icon: AlertTriangle },
     { label: "Reports", path: "/admin/reports", icon: BarChart3 },
     { label: "Users", path: "/admin/users", icon: Users },
