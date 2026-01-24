@@ -19,6 +19,7 @@ import AdminDashboard from "./pages/AdminDashboard";
 import AdminComplaints from "./pages/AdminComplaints";
 import AdminUsers from "./pages/AdminUsers";
 import AdminReports from "./pages/AdminReports";
+import AdminSettings from "./pages/AdminSettings";
 import EscalationHistory from "./pages/EscalationHistory";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
@@ -109,6 +110,14 @@ const App = () => (
             element={
               <ProtectedRoute role="admin">
                 <EscalationHistory />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/settings"
+            element={
+              <ProtectedRoute role="admin">
+                <AdminSettings />
               </ProtectedRoute>
             }
           />

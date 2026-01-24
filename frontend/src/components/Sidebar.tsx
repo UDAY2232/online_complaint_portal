@@ -24,6 +24,7 @@ const Sidebar = ({ role }: SidebarProps) => {
     { label: "Escalations", path: "/admin/escalations", icon: AlertTriangle },
     { label: "Reports", path: "/admin/reports", icon: BarChart3 },
     { label: "Users", path: "/admin/users", icon: Users },
+    { label: "Settings", path: "/admin/settings", icon: Settings },
   ];
 
   const links = role === "admin" ? adminLinks : userLinks;
