@@ -11,15 +11,10 @@ const isAdminRole = (role: string | null): boolean => {
   return role === "admin" || role === "superadmin";
 };
 
-// Helper to clear all auth data
+// Helper to clear all auth data - use clear() to ensure no stale data
 const clearAuthData = () => {
-  localStorage.removeItem("isAuthenticated");
-  localStorage.removeItem("accessToken");
-  localStorage.removeItem("refreshToken");
-  localStorage.removeItem("userRole");
-  localStorage.removeItem("userEmail");
-  localStorage.removeItem("userName");
-  localStorage.removeItem("userId");
+  localStorage.clear();
+  sessionStorage.clear();
 };
 
 const ProtectedRoute = ({ children, role }: ProtectedRouteProps) => {

@@ -45,7 +45,13 @@ const Login = () => {
       const response = await api.login(email, password);
       const { accessToken, refreshToken, user } = response.data;
 
-      // Store authentication data
+      // ✅ CRITICAL: Clear ALL previous session data first
+      localStorage.clear();
+      sessionStorage.clear();
+
+      console.log("🔐 Login successful for:", user.email, "Role:", user.role);
+
+      // Store ONLY current user's authentication data
       localStorage.setItem("isAuthenticated", "true");
       localStorage.setItem("accessToken", accessToken);
       localStorage.setItem("refreshToken", refreshToken);
@@ -61,11 +67,11 @@ const Login = () => {
           : "Welcome back!",
       });
 
-      // Redirect based on role
+      // Redirect based on role (use replace to prevent back navigation)
       if (user.role === "admin" || user.role === "superadmin") {
-        navigate("/admin/dashboard");
+        navigate("/admin/dashboard", { replace: true });
       } else {
-        navigate("/user/dashboard");
+        navigate("/user/dashboard", { replace: true });
       }
     } catch (err: any) {
       console.error("Login error:", err);

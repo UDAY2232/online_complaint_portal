@@ -73,14 +73,11 @@ export const logout = () => {
     axiosInstance.post("/auth/logout", { refreshToken }).catch(() => {});
   }
 
-  // Clear all auth data
-  localStorage.removeItem("isAuthenticated");
-  localStorage.removeItem("accessToken");
-  localStorage.removeItem("refreshToken");
-  localStorage.removeItem("userRole");
-  localStorage.removeItem("userEmail");
-  localStorage.removeItem("userName");
-  localStorage.removeItem("userId");
+  console.log("🚪 Logging out - clearing all session data");
+
+  // ✅ CRITICAL: Clear ALL storage to prevent data leakage
+  localStorage.clear();
+  sessionStorage.clear();
 
   // Redirect to login
   window.location.href = "/login";
@@ -88,8 +85,13 @@ export const logout = () => {
 
 export const api = {
   // ================= COMPLAINTS =================
+  // Get all complaints (admin use)
   getComplaints: () =>
     axiosInstance.get("/complaints"),
+
+  // ✅ Get only logged-in user's complaints (protected endpoint)
+  getUserComplaints: () =>
+    axiosInstance.get("/user/complaints"),
 
   // 🔥 CREATE COMPLAINT (WITH IMAGE)
   createComplaint: (formData: FormData) =>

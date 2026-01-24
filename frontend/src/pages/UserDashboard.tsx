@@ -58,7 +58,8 @@ const UserDashboard = () => {
   const fetchComplaints = async () => {
     setIsLoading(true);
     try {
-      const res = await api.getComplaints();
+      // ✅ Use protected endpoint - returns ONLY this user's complaints
+      const res = await api.getUserComplaints();
       const data = res.data.map((c: any) => ({
         ...c,
         date: c.date || c.created_at,
@@ -66,21 +67,21 @@ const UserDashboard = () => {
         resolved_image_url: c.resolved_image_url ?? null,
         problem_image_url: c.problem_image_url ?? null,
       }));
-      // Show only complaints raised by this user
-      const filtered = data.filter((c: any) => c.email === userEmail);
-      setComplaints(filtered);
+      
+      // No need to filter - backend already returns only user's complaints
+      setComplaints(data);
 
       // Calculate stats
       const newStats: DashboardStats = {
-        total: filtered.length,
-        pending: filtered.filter((c: Complaint) => c.status === "new").length,
-        underReview: filtered.filter((c: Complaint) => c.status === "under-review").length,
-        resolved: filtered.filter((c: Complaint) => c.status === "resolved").length,
+        total: data.length,
+        pending: data.filter((c: Complaint) => c.status === "new").length,
+        underReview: data.filter((c: Complaint) => c.status === "under-review").length,
+        resolved: data.filter((c: Complaint) => c.status === "resolved").length,
       };
       setStats(newStats);
 
       // Get recent 5 complaints (sorted by date desc)
-      const sorted = [...filtered].sort((a: Complaint, b: Complaint) => 
+      const sorted = [...data].sort((a: Complaint, b: Complaint) => 
         new Date(b.date).getTime() - new Date(a.date).getTime()
       );
       setRecentComplaints(sorted.slice(0, 5));

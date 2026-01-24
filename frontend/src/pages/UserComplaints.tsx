@@ -42,7 +42,8 @@ const UserComplaints = () => {
   const fetchComplaints = async () => {
     setIsLoading(true);
     try {
-      const res = await api.getComplaints();
+      // ✅ Use protected endpoint - returns ONLY this user's complaints
+      const res = await api.getUserComplaints();
       const data = res.data.map((c: any) => ({
         ...c,
         date: c.date || c.created_at,
@@ -50,10 +51,10 @@ const UserComplaints = () => {
         resolved_image_url: c.resolved_image_url ?? null,
         problem_image_url: c.problem_image_url ?? null,
       }));
-      // Show only complaints raised by this user
-      const filtered = data.filter((c: any) => c.email === userEmail);
-      setComplaints(filtered.reverse());
-      setFilteredComplaints(filtered);
+      
+      // No need to filter - backend already returns only user's complaints
+      setComplaints(data.reverse());
+      setFilteredComplaints(data);
     } catch (error) {
       console.error('Failed to load complaints', error);
       toast({
