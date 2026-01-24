@@ -236,6 +236,63 @@ const sendResolutionEmail = async (complaint) => {
   }
 };
 
+// ================= TEST EMAIL ENDPOINT =================
+app.get("/api/test-email", async (req, res) => {
+  console.log("\n========== TEST EMAIL ENDPOINT ==========");
+  console.log("📧 EMAIL_USER:", EMAIL_USER || "NOT SET");
+  console.log("📧 EMAIL_PASS:", EMAIL_PASS ? `SET (${EMAIL_PASS.length} chars)` : "NOT SET");
+  console.log("📧 emailEnabled:", emailEnabled);
+  console.log("📧 transporter:", transporter ? "EXISTS" : "NULL");
+
+  if (!emailEnabled || !transporter) {
+    return res.json({
+      success: false,
+      error: "Email not configured",
+      debug: {
+        EMAIL_USER: EMAIL_USER ? "SET" : "NOT SET",
+        EMAIL_PASS: EMAIL_PASS ? "SET" : "NOT SET",
+        emailEnabled,
+        transporterExists: !!transporter
+      }
+    });
+  }
+
+  try {
+    const testEmail = req.query.email || EMAIL_USER;
+    console.log("📧 Sending test email to:", testEmail);
+
+    const info = await transporter.sendMail({
+      from: `"Complaint Portal TEST" <${EMAIL_USER}>`,
+      to: testEmail,
+      subject: "✅ Test Email - Complaint Portal",
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #22c55e;">✅ Email Configuration Working!</h2>
+          <p>This is a test email from your Complaint Portal.</p>
+          <p>If you received this, email notifications are configured correctly.</p>
+          <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+        </div>
+      `
+    });
+
+    console.log("📧 ✅ Test email sent!", info.messageId);
+    res.json({
+      success: true,
+      message: "Test email sent successfully",
+      messageId: info.messageId,
+      response: info.response
+    });
+  } catch (err) {
+    console.error("📧 ❌ Test email failed:", err.message);
+    res.json({
+      success: false,
+      error: err.message,
+      code: err.code,
+      responseCode: err.responseCode
+    });
+  }
+});
+
 // ================= DATABASE =================
 
 // Use connection pool for reliability (handles reconnection automatically)
