@@ -57,6 +57,47 @@ const initAdminRoutes = (db) => {
     }
   });
 
+  // ================= CREATE USER (Admin) =================
+  router.post('/users', async (req, res) => {
+    try {
+      const { email, role = 'user' } = req.body;
+      const bcrypt = require('bcryptjs');
+
+      if (!email) {
+        return res.status(400).json({ error: 'Email is required' });
+      }
+
+      // Check if user already exists
+      const [existing] = await db.promise().query(
+        'SELECT id FROM users WHERE LOWER(email) = LOWER(?)',
+        [email]
+      );
+
+      if (existing.length > 0) {
+        return res.status(409).json({ error: 'User with this email already exists' });
+      }
+
+      // Generate a random password (user will need to reset)
+      const tempPassword = Math.random().toString(36).slice(-8);
+      const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+      const [result] = await db.promise().query(
+        'INSERT INTO users (email, password_hash, role, created_at) VALUES (LOWER(?), ?, ?, NOW())',
+        [email, passwordHash, role]
+      );
+
+      res.status(201).json({
+        id: result.insertId,
+        email: email.toLowerCase(),
+        role,
+        message: 'User created successfully'
+      });
+    } catch (err) {
+      console.error('Create user error:', err);
+      res.status(500).json({ error: 'Failed to create user' });
+    }
+  });
+
   // ================= UPDATE USER ROLE (Superadmin only) =================
   router.put('/users/:id/role', requireSuperadmin, async (req, res) => {
     try {

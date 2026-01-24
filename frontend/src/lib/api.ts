@@ -112,15 +112,15 @@ export const api = {
   checkEscalations: () =>
     axiosInstance.post("/complaints/check-escalations"),
 
-  // ================= USER ROLES =================
+  // ================= USER ROLES (Admin) =================
   getUserRoles: () =>
-    axiosInstance.get("/user-roles"),
+    axiosInstance.get("/admin/users"),
 
   createUser: (user: { email: string; role?: string }) =>
-    axiosInstance.post("/user-roles", user),
+    axiosInstance.post("/admin/users", user),
 
   updateUser: (id: number, patch: { role?: string }) =>
-    axiosInstance.put(`/user-roles/${id}`, patch),
+    axiosInstance.put(`/admin/users/${id}/role`, patch),
 
   // ================= ANONYMOUS TRACK =================
   getTrack: (trackingId: string) =>
