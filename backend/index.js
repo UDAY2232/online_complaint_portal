@@ -244,16 +244,23 @@ app.get("/api/test-email", async (req, res) => {
   console.log("📧 emailEnabled:", emailEnabled);
   console.log("📧 transporter:", transporter ? "EXISTS" : "NULL");
 
+  // Always return diagnostic info
+  const diagnostics = {
+    EMAIL_USER_SET: !!EMAIL_USER,
+    EMAIL_USER_VALUE: EMAIL_USER ? `${EMAIL_USER.substring(0, 5)}***@${EMAIL_USER.split('@')[1] || ''}` : "NOT SET",
+    EMAIL_PASS_SET: !!EMAIL_PASS,
+    EMAIL_PASS_LENGTH: EMAIL_PASS ? EMAIL_PASS.length : 0,
+    emailEnabled,
+    transporterExists: !!transporter,
+    nodeEnv: process.env.NODE_ENV || 'not set'
+  };
+
   if (!emailEnabled || !transporter) {
     return res.json({
       success: false,
-      error: "Email not configured",
-      debug: {
-        EMAIL_USER: EMAIL_USER ? "SET" : "NOT SET",
-        EMAIL_PASS: EMAIL_PASS ? "SET" : "NOT SET",
-        emailEnabled,
-        transporterExists: !!transporter
-      }
+      error: "Email not configured - check Render environment variables",
+      diagnostics,
+      fix: "Add EMAIL_USER and EMAIL_PASS to Render Dashboard → Environment"
     });
   }
 
@@ -280,7 +287,8 @@ app.get("/api/test-email", async (req, res) => {
       success: true,
       message: "Test email sent successfully",
       messageId: info.messageId,
-      response: info.response
+      response: info.response,
+      diagnostics
     });
   } catch (err) {
     console.error("📧 ❌ Test email failed:", err.message);
@@ -288,9 +296,23 @@ app.get("/api/test-email", async (req, res) => {
       success: false,
       error: err.message,
       code: err.code,
-      responseCode: err.responseCode
+      responseCode: err.responseCode,
+      diagnostics
     });
   }
+});
+
+// ================= EMAIL STATUS ENDPOINT =================
+app.get("/api/email-status", (req, res) => {
+  res.json({
+    configured: emailEnabled,
+    EMAIL_USER: EMAIL_USER ? "✅ SET" : "❌ NOT SET",
+    EMAIL_PASS: EMAIL_PASS ? "✅ SET" : "❌ NOT SET",
+    transporter: transporter ? "✅ CREATED" : "❌ NULL",
+    message: emailEnabled 
+      ? "Email is configured and ready" 
+      : "Email NOT configured - add EMAIL_USER and EMAIL_PASS to Render environment variables"
+  });
 });
 
 // ================= DATABASE =================
