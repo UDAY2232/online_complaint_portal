@@ -8,7 +8,16 @@ import { api } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
-import { Plus } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { 
+  Plus, 
+  FileText, 
+  Clock, 
+  CheckCircle, 
+  AlertCircle,
+  ArrowRight,
+  RefreshCw
+} from "lucide-react";
 
 interface Complaint {
   id: number;
@@ -23,42 +32,68 @@ interface Complaint {
   problem_image_url?: string | null;
 }
 
+interface DashboardStats {
+  total: number;
+  pending: number;
+  underReview: number;
+  resolved: number;
+}
+
 const UserDashboard = () => {
   const [complaints, setComplaints] = useState<Complaint[]>([]);
+  const [stats, setStats] = useState<DashboardStats>({
+    total: 0,
+    pending: 0,
+    underReview: 0,
+    resolved: 0,
+  });
+  const [recentComplaints, setRecentComplaints] = useState<Complaint[]>([]);
+  const [latestComplaint, setLatestComplaint] = useState<Complaint | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [trackingIdInput, setTrackingIdInput] = useState('');
-  const [trackedComplaint, setTrackedComplaint] = useState<any | null>(null);
-  const [isTrackingOpen, setIsTrackingOpen] = useState(false);
-  const [historyData, setHistoryData] = useState<any[]>([]);
-  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
+  const navigate = useNavigate();
   const userEmail = localStorage.getItem("userEmail") || "User";
 
   const fetchComplaints = async () => {
+    setIsLoading(true);
     try {
       const res = await api.getComplaints();
       const data = res.data.map((c: any) => ({
         ...c,
         date: c.date || c.created_at,
-        // Ensure nullable fields are handled
         resolution_message: c.resolution_message ?? null,
         resolved_image_url: c.resolved_image_url ?? null,
         problem_image_url: c.problem_image_url ?? null,
       }));
-      // show only complaints raised by this user
+      // Show only complaints raised by this user
       const filtered = data.filter((c: any) => c.email === userEmail);
-      setComplaints(filtered.reverse());
+      setComplaints(filtered);
+
+      // Calculate stats
+      const newStats: DashboardStats = {
+        total: filtered.length,
+        pending: filtered.filter((c: Complaint) => c.status === "new").length,
+        underReview: filtered.filter((c: Complaint) => c.status === "under-review").length,
+        resolved: filtered.filter((c: Complaint) => c.status === "resolved").length,
+      };
+      setStats(newStats);
+
+      // Get recent 5 complaints (sorted by date desc)
+      const sorted = [...filtered].sort((a: Complaint, b: Complaint) => 
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+      setRecentComplaints(sorted.slice(0, 5));
+      setLatestComplaint(sorted[0] || null);
     } catch (error) {
-      console.error('Failed to load complaints from API, falling back to localStorage', error);
-      const stored = JSON.parse(localStorage.getItem("complaints") || "[]");
-      // filter by user as before
-      setComplaints(stored.filter((c: any) => c.name === (userEmail || 'User')).reverse());
+      console.error('Failed to load complaints', error);
       toast({
         title: 'Error',
-        description: 'Failed to load complaints from server',
+        description: 'Failed to load dashboard data',
         variant: 'destructive',
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -68,57 +103,28 @@ const UserDashboard = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case "new":
-        return "bg-primary text-primary-foreground";
-      case "under-review":
-        return "bg-warning text-warning-foreground";
-      case "resolved":
-        return "bg-success text-success-foreground";
-      default:
-        return "bg-muted text-muted-foreground";
+      case "new": return "bg-primary text-primary-foreground";
+      case "under-review": return "bg-warning text-warning-foreground";
+      case "resolved": return "bg-success text-success-foreground";
+      default: return "bg-muted text-muted-foreground";
     }
   };
 
-  const handleComplaintSubmitted = (created?: any) => {
-    // Refresh the list from API to get full complaint data (id, timestamps, etc.)
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case "high": return "text-destructive";
+      case "medium": return "text-yellow-600";
+      default: return "text-muted-foreground";
+    }
+  };
+
+  const handleComplaintSubmitted = () => {
     fetchComplaints();
     setIsDialogOpen(false);
-    if (created && created.trackingId) {
-      toast({ title: 'Anonymous complaint submitted', description: `Tracking ID: ${created.trackingId}` });
-    }
-  };
-
-  const handleTrack = async () => {
-    if (!trackingIdInput) return toast({ title: 'Enter tracking id', description: 'Please enter a tracking id to lookup', variant: 'destructive' });
-    try {
-      const res = await api.getTrack(trackingIdInput.trim());
-      setTrackedComplaint(res.data);
-      setIsTrackingOpen(true);
-    } catch (err: any) {
-      console.error('Tracking lookup failed', err);
-      toast({ title: 'Not found', description: err.response?.data?.error || 'Complaint not found', variant: 'destructive' });
-    }
-  };
-
-  const openHistory = async (complaintId: number) => {
-    try {
-      // Find the complaint from the list to show its details
-      const complaint = complaints.find(c => c.id === complaintId) || null;
-      setSelectedComplaint(complaint);
-      
-      const res = await api.getComplaintHistory(complaintId);
-      setHistoryData(res.data || []);
-      setIsHistoryOpen(true);
-    } catch (err) {
-      console.error('Failed to load history', err);
-      toast({ title: 'Error', description: 'Failed to load complaint history', variant: 'destructive' });
-    }
-  };
-
-  const handleCloseHistory = () => {
-    setIsHistoryOpen(false);
-    setSelectedComplaint(null);
-    setHistoryData([]);
+    toast({
+      title: "Complaint Submitted",
+      description: "Your complaint has been submitted successfully.",
+    });
   };
 
   return (
@@ -128,176 +134,229 @@ const UserDashboard = () => {
         <Sidebar role="user" />
         <main className="flex-1 p-6">
           <div className="max-w-6xl mx-auto space-y-6">
+            {/* Welcome Card */}
             <Card className="border-primary/20 shadow-lg">
               <CardHeader>
-                <CardTitle className="text-2xl">Welcome, {userEmail}</CardTitle>
-                <CardDescription>Manage and track your complaints</CardDescription>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <CardTitle className="text-2xl">Welcome back, {userEmail}</CardTitle>
+                    <CardDescription className="mt-2">Here's an overview of your complaints</CardDescription>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button 
+                      variant="outline" 
+                      size="sm"
+                      onClick={fetchComplaints}
+                      disabled={isLoading}
+                    >
+                      <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                      Refresh
+                    </Button>
+                    <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button size="sm">
+                          <Plus className="mr-2 h-4 w-4" />
+                          New Complaint
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                        <DialogHeader>
+                          <DialogTitle>Submit New Complaint</DialogTitle>
+                          <DialogDescription>
+                            Fill out the form below to submit your complaint
+                          </DialogDescription>
+                        </DialogHeader>
+                        <ComplaintForm onSubmit={handleComplaintSubmitted} />
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+                </div>
               </CardHeader>
             </Card>
 
-            <div className="flex justify-between items-center">
-              <h2 className="text-xl font-semibold">My Complaints</h2>
-              <div className="flex items-center gap-2">
-                <Button variant="outline" onClick={() => fetchComplaints()}>Refresh</Button>
-                <input
-                  className="border rounded px-2 py-1"
-                  placeholder="Tracking ID"
-                  value={trackingIdInput}
-                  onChange={(e) => setTrackingIdInput(e.target.value)}
-                />
-                <Button variant="ghost" onClick={handleTrack}>Track</Button>
-                <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-                <DialogTrigger asChild>
-                  <Button>
-                    <Plus className="mr-2 h-4 w-4" />
-                    New Complaint
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle>Submit New Complaint</DialogTitle>
-                    <DialogDescription>
-                      Fill out the form below to submit your complaint
-                    </DialogDescription>
-                  </DialogHeader>
-                  <ComplaintForm onSubmit={handleComplaintSubmitted} />
-                </DialogContent>
-                </Dialog>
-            </div>
-            {/* History dialog */}
-            <Dialog open={isHistoryOpen} onOpenChange={handleCloseHistory}>
-              <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                <DialogHeader>
-                  <DialogTitle>Complaint Progress</DialogTitle>
-                  <DialogDescription>Timeline of status changes</DialogDescription>
-                </DialogHeader>
-                
-                {/* Before Image - User uploaded problem image */}
-                {selectedComplaint?.problem_image_url ? (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Before (User Uploaded Image)</p>
-                    <img
-                      src={selectedComplaint.problem_image_url}
-                      alt="Problem"
-                      className="w-full max-h-48 object-contain rounded-lg border"
-                    />
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium">Before (User Uploaded Image)</p>
-                    <p className="text-sm text-muted-foreground">No image provided</p>
-                  </div>
-                )}
-
-                {/* After Image & Resolution - Only show if resolved */}
-                {selectedComplaint?.status === "resolved" && (
-                  <div className="space-y-4 border-t pt-4">
-                    {selectedComplaint?.resolution_message ? (
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium">Resolution Message</p>
-                        <p className="text-sm text-muted-foreground">{selectedComplaint.resolution_message}</p>
-                      </div>
-                    ) : null}
-                    
-                    {selectedComplaint?.resolved_image_url ? (
-                      <div className="space-y-2">
-                        <p className="text-sm font-medium">After (Resolved Image)</p>
-                        <img
-                          src={selectedComplaint.resolved_image_url}
-                          alt="Resolution"
-                          className="w-full max-h-48 object-contain rounded-lg border"
-                        />
-                      </div>
-                    ) : null}
-                  </div>
-                )}
-
-                {/* Status Timeline */}
-                <div className="border-t pt-4">
-                  <p className="text-sm font-medium mb-3">Status Timeline</p>
-                  {historyData.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No history available.</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {historyData.map((h) => (
-                        <div key={h.id} className="p-3 border rounded">
-                          <div className="flex items-center justify-between">
-                            <div className="font-medium">{h.old_status ?? 'Created'} → {h.new_status}</div>
-                            <div className="text-xs text-muted-foreground">{new Date(h.changed_at).toLocaleString()}</div>
-                          </div>
-                          {h.changed_by && <div className="text-sm text-muted-foreground">By: {h.changed_by}</div>}
-                        </div>
-                      ))}
+            {/* Stats Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Total Complaints</p>
+                      <p className="text-3xl font-bold">{stats.total}</p>
                     </div>
-                  )}
-                </div>
-              </DialogContent>
-            </Dialog>
-          </div>
+                    <FileText className="h-8 w-8 text-muted-foreground" />
+                  </div>
+                </CardContent>
+              </Card>
 
-            {/* Tracking result dialog */}
-            <Dialog open={isTrackingOpen} onOpenChange={setIsTrackingOpen}>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Tracking Result</DialogTitle>
-                  <DialogDescription>Details for tracking id</DialogDescription>
-                </DialogHeader>
-                {trackedComplaint ? (
-                  <div className="space-y-4">
-                    <p className="font-semibold">Category: {trackedComplaint.category}</p>
-                    <p>Status: {trackedComplaint.status}</p>
-                    <p>Priority: {trackedComplaint.priority}</p>
-                    <p>Submitted: {new Date(trackedComplaint.created_at || trackedComplaint.date).toLocaleString()}</p>
-                    <p className="text-sm text-muted-foreground">{trackedComplaint.description}</p>
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Pending</p>
+                      <p className="text-3xl font-bold text-primary">{stats.pending}</p>
+                    </div>
+                    <AlertCircle className="h-8 w-8 text-primary" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Under Review</p>
+                      <p className="text-3xl font-bold text-yellow-600">{stats.underReview}</p>
+                    </div>
+                    <Clock className="h-8 w-8 text-yellow-600" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Resolved</p>
+                      <p className="text-3xl font-bold text-green-600">{stats.resolved}</p>
+                    </div>
+                    <CheckCircle className="h-8 w-8 text-green-600" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Latest Complaint Status */}
+            {latestComplaint && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Latest Complaint Status</CardTitle>
+                  <CardDescription>Your most recent complaint update</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/30">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs text-muted-foreground">#{latestComplaint.id}</span>
+                        <span className="font-medium capitalize">{latestComplaint.category}</span>
+                        <Badge variant="outline" className={getPriorityColor(latestComplaint.priority)}>
+                          {latestComplaint.priority}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground line-clamp-1">
+                        {latestComplaint.description}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Submitted: {new Date(latestComplaint.date).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <Badge className={getStatusColor(latestComplaint.status)}>
+                        {latestComplaint.status === "new" && "New"}
+                        {latestComplaint.status === "under-review" && "Under Review"}
+                        {latestComplaint.status === "resolved" && "Resolved"}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Recent Complaints */}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between">
+                <div>
+                  <CardTitle>Recent Complaints</CardTitle>
+                  <CardDescription>Your latest submitted complaints</CardDescription>
+                </div>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  onClick={() => navigate('/user/complaints')}
+                >
+                  View All
+                  <ArrowRight className="h-4 w-4 ml-2" />
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {isLoading ? (
+                  <div className="py-8 text-center text-muted-foreground">
+                    Loading...
+                  </div>
+                ) : recentComplaints.length === 0 ? (
+                  <div className="py-8 text-center text-muted-foreground">
+                    <p>No complaints yet.</p>
+                    <p className="text-sm mt-2">Click "New Complaint" to submit your first complaint.</p>
                   </div>
                 ) : (
-                  <p>No result</p>
-                )}
-              </DialogContent>
-            </Dialog>
-
-            <div className="grid gap-4">
-              {complaints.length === 0 ? (
-                <Card>
-                  <CardContent className="py-12 text-center">
-                    <p className="text-muted-foreground">No complaints yet. Submit your first complaint to get started.</p>
-                  </CardContent>
-                </Card>
-              ) : (
-                complaints.map((complaint) => (
-                  <Card key={complaint.id} className="hover:shadow-md transition-shadow">
-                    <CardContent className="p-6">
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div className="space-y-2 flex-1">
-                          <div className="flex items-start gap-3">
-                            <div className="flex-1">
-                              <h3 className="font-semibold capitalize">{complaint.category}</h3>
-                              <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
-                                {complaint.description}
-                              </p>
-                            </div>
+                  <div className="space-y-3">
+                    {recentComplaints.map((complaint) => (
+                      <div
+                        key={complaint.id}
+                        className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
+                        onClick={() => navigate('/user/complaints')}
+                      >
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs text-muted-foreground">#{complaint.id}</span>
+                            <span className="font-medium capitalize">{complaint.category}</span>
+                            <Badge variant="outline" className={getPriorityColor(complaint.priority)}>
+                              {complaint.priority}
+                            </Badge>
                           </div>
-                          <div className="flex flex-wrap gap-2 text-sm text-muted-foreground">
-                            <span>
-                              {new Date(complaint.date).toLocaleDateString()}
-                            </span>
-                            <span>•</span>
-                            <span className="capitalize">Priority: {complaint.priority}</span>
-                          </div>
+                          <p className="text-sm text-muted-foreground line-clamp-1">
+                            {complaint.description}
+                          </p>
                         </div>
-                        <div className="flex items-center gap-3">
-                          <Badge className={getStatusColor(complaint.status)}>
-                          {complaint.status === "new" && "New"}
-                          {complaint.status === "under-review" && "Under Review"}
-                          {complaint.status === "resolved" && "Resolved"}
-                          </Badge>
-                          <Button variant="outline" size="sm" onClick={() => openHistory(complaint.id)}>View Progress</Button>
-                        </div>
+                        <Badge className={getStatusColor(complaint.status)}>
+                          {complaint.status}
+                        </Badge>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))
-              )}
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Quick Actions */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card 
+                className="cursor-pointer hover:shadow-md transition-shadow" 
+                onClick={() => navigate('/user/complaints')}
+              >
+                <CardContent className="p-6 flex items-center gap-4">
+                  <FileText className="h-10 w-10 text-primary" />
+                  <div>
+                    <h3 className="font-semibold">My Complaints</h3>
+                    <p className="text-sm text-muted-foreground">View all your complaints</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card 
+                className="cursor-pointer hover:shadow-md transition-shadow" 
+                onClick={() => navigate('/user/status')}
+              >
+                <CardContent className="p-6 flex items-center gap-4">
+                  <Clock className="h-10 w-10 text-yellow-600" />
+                  <div>
+                    <h3 className="font-semibold">Track Status</h3>
+                    <p className="text-sm text-muted-foreground">Track complaint by ID</p>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card 
+                className="cursor-pointer hover:shadow-md transition-shadow" 
+                onClick={() => navigate('/user/settings')}
+              >
+                <CardContent className="p-6 flex items-center gap-4">
+                  <CheckCircle className="h-10 w-10 text-green-600" />
+                  <div>
+                    <h3 className="font-semibold">Settings</h3>
+                    <p className="text-sm text-muted-foreground">Manage your profile</p>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
         </main>

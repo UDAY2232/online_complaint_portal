@@ -13,7 +13,7 @@ const Sidebar = ({ role }: SidebarProps) => {
 
   const userLinks = [
     { label: "Dashboard", path: "/user/dashboard", icon: Home },
-    { label: "My Complaints", path: "/user/dashboard", icon: FileText },
+    { label: "My Complaints", path: "/user/complaints", icon: FileText },
     { label: "Track Status", path: "/user/status", icon: TrendingUp },
     { label: "Settings", path: "/user/settings", icon: Settings },
   ];

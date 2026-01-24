@@ -12,6 +12,7 @@ import ResetPassword from "./pages/ResetPassword";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import TermsOfService from "./pages/TermsOfService";
 import UserDashboard from "./pages/UserDashboard";
+import UserComplaints from "./pages/UserComplaints";
 import UserSettings from "./pages/UserSettings";
 import StatusTracker from "./pages/StatusTracker";
 import AdminDashboard from "./pages/AdminDashboard";
@@ -42,6 +43,14 @@ const App = () => (
             element={
               <ProtectedRoute role="user">
                 <UserDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/user/complaints"
+            element={
+              <ProtectedRoute role="user">
+                <UserComplaints />
               </ProtectedRoute>
             }
           />
