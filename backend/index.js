@@ -68,23 +68,27 @@ app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/', generalLimiter);
 
 // ================= EMAIL CONFIGURATION =================
-console.log("📧 Email Config:", {
+const EMAIL_USER = process.env.EMAIL_USER;
+const EMAIL_PASS = process.env.EMAIL_PASS?.replace(/\s/g, ""); // Remove spaces from app password
+
+console.log("📧 Email Config Check:", {
   host: 'smtp.gmail.com',
   port: '587',
-  user: process.env.EMAIL_USER ? "✅ Set" : "❌ Not set",
-  pass: process.env.EMAIL_PASS ? "✅ Set" : "❌ Not set",
+  user: EMAIL_USER ? `✅ Set (${EMAIL_USER.substring(0, 5)}***)` : "❌ Not set",
+  pass: EMAIL_PASS ? `✅ Set (${EMAIL_PASS.length} chars)` : "❌ Not set",
 });
 
-let emailEnabled = false;
+// Enable email if credentials exist (don't wait for verification)
+let emailEnabled = !!(EMAIL_USER && EMAIL_PASS);
 
 // Create transporter with explicit SMTP settings for better cloud compatibility
-const transporter = nodemailer.createTransport({
+const transporter = EMAIL_USER && EMAIL_PASS ? nodemailer.createTransport({
   host: 'smtp.gmail.com',
   port: 587,
   secure: false, // Use STARTTLS
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS?.replace(/\s/g, ""), // Remove spaces from app password
+    user: EMAIL_USER,
+    pass: EMAIL_PASS,
   },
   // Cloud platform compatibility settings
   connectionTimeout: 60000, // 60 seconds
@@ -99,38 +103,32 @@ const transporter = nodemailer.createTransport({
     rejectUnauthorized: false, // Accept self-signed certs in some cloud environments
     minVersion: 'TLSv1.2'
   }
-});
+}) : null;
 
 // Async verification with timeout handling for cloud platforms
 const verifyEmailTransporter = async () => {
   // Check if email credentials are configured
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+  if (!EMAIL_USER || !EMAIL_PASS || !transporter) {
     console.log("📧 ⚠️ Email credentials not configured - email notifications disabled");
     emailEnabled = false;
     return;
   }
 
+  console.log("📧 ✅ Email enabled with credentials - verification will be attempted in background");
+  
   try {
     // Set a manual timeout for verification
     const verifyPromise = transporter.verify();
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Verification timeout')), 30000)
+      setTimeout(() => reject(new Error('Verification timeout after 30s')), 30000)
     );
     
     await Promise.race([verifyPromise, timeoutPromise]);
-    console.log("📧 ✅ Email transporter ready to send");
-    emailEnabled = true;
+    console.log("📧 ✅ Email transporter verified and ready");
   } catch (error) {
-    console.error("📧 ❌ Email transporter verification failed:", error.message);
-    console.log("📧 ⚠️ Email notifications will be disabled");
-    console.log("📧 ℹ️ Note: This is common on cloud platforms. Emails may still work when sending.");
-    emailEnabled = false;
-    
-    // Enable email anyway if credentials exist - verification can fail but sending might work
-    if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-      console.log("📧 ℹ️ Enabling email anyway - will retry on first send attempt");
-      emailEnabled = true;
-    }
+    console.error("📧 ⚠️ Email verification failed:", error.message);
+    console.log("📧 ℹ️ Will still attempt to send emails - verification often fails on cloud but sending works");
+    // DON'T disable email - verification often fails on cloud but sending works
   }
 };
 
@@ -139,73 +137,101 @@ verifyEmailTransporter();
 
 // ================= SEND EMAIL FUNCTION =================
 const sendResolutionEmail = async (complaint) => {
+  console.log("\n========== EMAIL NOTIFICATION START ==========");
+  console.log("📧 Complaint ID:", complaint?.id);
+  console.log("📧 User Email:", complaint?.email || "NO EMAIL");
+  console.log("📧 Email Enabled:", emailEnabled);
+  console.log("📧 Transporter Exists:", !!transporter);
+  console.log("📧 EMAIL_USER Set:", !!EMAIL_USER);
+  console.log("📧 EMAIL_PASS Set:", !!EMAIL_PASS);
+
   try {
-    console.log("📧 Attempting to send email for complaint:", complaint.id);
-    console.log("📧 User email:", complaint.email || "NO EMAIL");
-    console.log("📧 Email enabled:", emailEnabled);
-
-    // Skip if email is not configured properly
-    if (!emailEnabled) {
-      console.log("📧 ⚠️ Email is disabled - skipping notification");
-      return;
+    // Check 1: Email enabled
+    if (!emailEnabled || !transporter) {
+      console.log("📧 ❌ SKIP: Email is disabled or transporter not configured");
+      console.log("========== EMAIL NOTIFICATION END (SKIPPED) ==========");
+      return false;
     }
 
-    // Only send if user email exists
-    if (!complaint.email) {
-      console.log("📧 ⚠️ No email address - skipping notification");
-      return;
+    // Check 2: Complaint has email
+    if (!complaint?.email) {
+      console.log("📧 ❌ SKIP: No recipient email address in complaint");
+      console.log("========== EMAIL NOTIFICATION END (SKIPPED) ==========");
+      return false;
     }
+
+    // Build email content
+    const problemImageSection = complaint.problem_image_url
+      ? `<div style="margin: 20px 0;">
+           <h3 style="color: #dc2626;">❌ BEFORE (Problem):</h3>
+           <img src="${complaint.problem_image_url}" alt="Problem" style="max-width: 400px; border-radius: 8px; border: 2px solid #ef4444;" />
+         </div>`
+      : "";
 
     const resolvedImageSection = complaint.resolved_image_url
-      ? `<p><strong>Resolution Image:</strong></p>
-         <img src="${complaint.resolved_image_url}" alt="Resolution" style="max-width: 400px; border-radius: 8px;" />`
+      ? `<div style="margin: 20px 0;">
+           <h3 style="color: #22c55e;">✅ AFTER (Resolved):</h3>
+           <img src="${complaint.resolved_image_url}" alt="Resolution" style="max-width: 400px; border-radius: 8px; border: 2px solid #22c55e;" />
+         </div>`
       : "";
 
     const mailOptions = {
-      from: `"Complaint Portal" <${process.env.EMAIL_USER}>`,
+      from: `"Complaint Portal" <${EMAIL_USER}>`,
       to: complaint.email,
-      subject: `Your Complaint #${complaint.id} Has Been Resolved`,
+      subject: `✅ Your Complaint #${complaint.id} Has Been Resolved`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #22c55e;">✅ Your Complaint Has Been Resolved</h2>
+          <div style="background-color: #ecfdf5; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #22c55e;">
+            <h2 style="color: #22c55e; margin: 0;">✅ Your Complaint Has Been Resolved</h2>
+          </div>
           
           <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
             <p><strong>Complaint ID:</strong> #${complaint.id}</p>
-            <p><strong>Category:</strong> ${complaint.category}</p>
-            <p><strong>Status:</strong> <span style="color: #22c55e; font-weight: bold;">Resolved</span></p>
+            <p><strong>Category:</strong> ${complaint.category || 'N/A'}</p>
+            <p><strong>Status:</strong> <span style="color: #22c55e; font-weight: bold;">RESOLVED</span></p>
           </div>
           
           ${complaint.resolution_message ? `
           <div style="margin: 20px 0;">
-            <h3>Resolution Message:</h3>
+            <h3>📝 Resolution Message:</h3>
             <p style="background-color: #ecfdf5; padding: 15px; border-radius: 8px; border-left: 4px solid #22c55e;">
               ${complaint.resolution_message}
             </p>
           </div>
           ` : ""}
           
+          ${problemImageSection}
           ${resolvedImageSection}
           
           <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
           
           <p style="color: #6b7280; font-size: 14px;">
-            Thank you for using our Complaint Portal. If you have any further questions, please don't hesitate to reach out.
+            Thank you for using our Complaint Portal. If you have any further questions or concerns, please don't hesitate to submit a new complaint.
           </p>
         </div>
       `,
     };
 
     console.log("📧 Sending email to:", complaint.email);
+    console.log("📧 From:", EMAIL_USER);
+    console.log("📧 Subject:", mailOptions.subject);
+
     const info = await transporter.sendMail(mailOptions);
-    console.log(`📧 ✅ Resolution email sent to: ${complaint.email}`);
+    
+    console.log("📧 ✅ EMAIL SENT SUCCESSFULLY!");
     console.log("📧 Message ID:", info.messageId);
+    console.log("📧 Response:", info.response);
+    console.log("========== EMAIL NOTIFICATION END (SUCCESS) ==========");
     return true;
+
   } catch (err) {
-    console.error(`📧 ❌ Failed to send email to ${complaint.email}:`, err.message);
-    // Don't log full error in production to avoid exposing credentials
-    if (process.env.NODE_ENV !== 'production') {
-      console.error("📧 Full error:", err);
-    }
+    console.error("📧 ❌ EMAIL SEND FAILED!");
+    console.error("📧 Error Name:", err.name);
+    console.error("📧 Error Message:", err.message);
+    console.error("📧 Error Code:", err.code);
+    if (err.responseCode) console.error("📧 SMTP Response Code:", err.responseCode);
+    if (err.response) console.error("📧 SMTP Response:", err.response);
+    console.error("========== EMAIL NOTIFICATION END (FAILED) ==========");
     return false;
   }
 };
@@ -443,21 +469,22 @@ app.put(
         [resolution_message, resolvedImageUrl, id]
       );
 
-      // Fetch updated complaint
+      // Fetch updated complaint with all fields
       const [updated] = await db
         .promise()
         .query("SELECT * FROM complaints WHERE id = ?", [id]);
 
-      console.log("✅ Complaint resolved successfully");
+      console.log("✅ Complaint resolved successfully (PUT)");
+      console.log("📧 Complaint email:", updated[0]?.email || "NO EMAIL");
 
-      // Send email notification (non-blocking)
-      sendResolutionEmail(updated[0]).catch(err => {
-        console.error("📧 Email sending failed in background:", err.message);
-      });
+      // Send email notification - await for logging but don't block response
+      const emailResult = await sendResolutionEmail(updated[0]);
+      console.log("📧 Email result:", emailResult ? "SENT" : "FAILED/SKIPPED");
 
       res.json({
         success: true,
         message: "Complaint resolved successfully",
+        emailSent: emailResult,
         complaint: updated[0],
       });
     } catch (err) {
@@ -518,21 +545,22 @@ app.post(
         [resolution_message, resolvedImageUrl, id]
       );
 
-      // Fetch updated complaint
+      // Fetch updated complaint with all fields
       const [updated] = await db
         .promise()
         .query("SELECT * FROM complaints WHERE id = ?", [id]);
 
-      console.log("✅ Complaint resolved successfully");
+      console.log("✅ Complaint resolved successfully (POST)");
+      console.log("📧 Complaint email:", updated[0]?.email || "NO EMAIL");
 
-      // Send email notification (non-blocking)
-      sendResolutionEmail(updated[0]).catch(err => {
-        console.error("📧 Email sending failed in background:", err.message);
-      });
+      // Send email notification - await for logging but don't block response
+      const emailResult = await sendResolutionEmail(updated[0]);
+      console.log("📧 Email result:", emailResult ? "SENT" : "FAILED/SKIPPED");
 
       res.json({
         success: true,
         message: "Complaint resolved successfully",
+        emailSent: emailResult,
         complaint: updated[0],
       });
     } catch (err) {
