@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
 import { BarChart3, Download, TrendingUp, FileText, Clock } from "lucide-react";
+import { api } from "@/lib/api";
 
 const AdminReports = () => {
   const [complaints, setComplaints] = useState<any[]>([]);
@@ -11,12 +12,12 @@ const AdminReports = () => {
   useEffect(() => {
     const load = async () => {
       try {
-        const res = await fetch('http://localhost:4000/api/complaints');
-        const data = await res.json();
+        const res = await api.getComplaints();
+        const data = res.data;
         // normalize created_at -> date for compatibility with existing UI
-  const normalized = data.map((c: any) => ({ ...c, date: c.date || c.created_at }));
-  // Reports should reflect user-raised complaints only
-  setComplaints(normalized.filter((c: any) => !c.is_anonymous));
+        const normalized = data.map((c: any) => ({ ...c, date: c.date || c.created_at }));
+        // Reports should reflect user-raised complaints only
+        setComplaints(normalized.filter((c: any) => !c.is_anonymous));
       } catch (error) {
         console.error('Failed to load complaints for reports, falling back to localStorage', error);
         const stored = JSON.parse(localStorage.getItem("complaints") || "[]");
