@@ -25,6 +25,9 @@ const initPasswordResetRoutes = (db) => {
     try {
       const { email } = req.body;
 
+      console.log('\n========== FORGOT PASSWORD REQUEST ==========');
+      console.log('📧 Email requested:', email);
+
       if (!email) {
         return res.status(400).json({ error: 'Email is required' });
       }
@@ -34,18 +37,23 @@ const initPasswordResetRoutes = (db) => {
         message: 'If an account exists with this email, you will receive a password reset link.' 
       };
 
-      // Check if user exists
+      // Check if user exists (case-insensitive like login)
       const [users] = await db.promise().query(
-        'SELECT id, email, name FROM users WHERE email = ?',
+        'SELECT id, email, name FROM users WHERE LOWER(email) = LOWER(?)',
         [email]
       );
 
+      console.log('📧 User found:', users.length > 0 ? 'Yes' : 'No');
+
       if (users.length === 0) {
         // Don't reveal that user doesn't exist
+        console.log('📧 User not found, returning success anyway (security)');
+        console.log('========== FORGOT PASSWORD END ==========\n');
         return res.json(successResponse);
       }
 
       const user = users[0];
+      console.log('📧 User ID:', user.id, 'Email:', user.email);
 
       // Generate reset token
       const resetToken = crypto.randomBytes(32).toString('hex');
@@ -58,6 +66,8 @@ const initPasswordResetRoutes = (db) => {
         expiresAt: Date.now() + 60 * 60 * 1000, // 1 hour
       });
 
+      console.log('📧 Reset token generated and stored');
+
       // Clean up expired tokens periodically
       for (const [key, value] of resetTokens) {
         if (value.expiresAt < Date.now()) {
@@ -67,9 +77,18 @@ const initPasswordResetRoutes = (db) => {
 
       // Send reset email
       const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
+      console.log('📧 Reset URL:', resetUrl);
       
-      await sendPasswordResetEmail(user.email, user.name, resetUrl);
-
+      console.log('📧 Attempting to send email...');
+      const emailSent = await sendPasswordResetEmail(user.email, user.name, resetUrl);
+      
+      if (emailSent) {
+        console.log('📧 ✅ Password reset email sent successfully!');
+      } else {
+        console.log('📧 ⚠️ Email sending returned false - check email service');
+      }
+      
+      console.log('========== FORGOT PASSWORD END ==========\n');
       res.json(successResponse);
 
     } catch (err) {

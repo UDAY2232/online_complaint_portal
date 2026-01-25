@@ -302,8 +302,20 @@ const sendVerificationEmail = async (email, token) => {
  * @param {string} resetUrl - Password reset URL
  */
 const sendPasswordResetEmail = async (email, name, resetUrl) => {
-  if (!emailEnabled || !transporter) {
-    console.log('📧 ⚠️ Email disabled - skipping password reset email');
+  console.log('📧 [PASSWORD RESET] Starting email send...');
+  console.log('📧 [PASSWORD RESET] emailEnabled:', emailEnabled);
+  console.log('📧 [PASSWORD RESET] transporter exists:', !!transporter);
+  console.log('📧 [PASSWORD RESET] EMAIL_USER:', process.env.EMAIL_USER ? 'Set' : 'NOT SET');
+  console.log('📧 [PASSWORD RESET] EMAIL_PASS:', process.env.EMAIL_PASS ? 'Set' : 'NOT SET');
+  
+  // If transporter doesn't exist but credentials do, try to create it
+  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    console.log('📧 [PASSWORD RESET] Transporter missing, reinitializing...');
+    initializeTransporter();
+  }
+  
+  if (!transporter) {
+    console.log('📧 ❌ [PASSWORD RESET] Transporter still null after init attempt');
     return false;
   }
 

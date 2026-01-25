@@ -75,10 +75,28 @@ const Login = () => {
       }
     } catch (err: any) {
       console.error("Login error:", err);
-      const errorMessage = err.response?.data?.error || "Login failed. Please check your credentials.";
+      const backendError = err.response?.data?.error;
+      let errorMessage = "Login failed. Please check your credentials.";
+      let errorTitle = "Login failed";
+      
+      // Provide more helpful error messages
+      if (err.response?.status === 401) {
+        errorMessage = "Invalid email or password. Please try again or use 'Forgot password?' if you've forgotten your credentials.";
+      } else if (err.response?.status === 400) {
+        errorMessage = backendError || "Please enter both email and password.";
+      } else if (err.response?.status === 500) {
+        errorMessage = "Server error. Please try again later.";
+        errorTitle = "Server error";
+      } else if (!err.response) {
+        errorMessage = "Unable to connect to server. Please check your internet connection.";
+        errorTitle = "Connection error";
+      } else if (backendError) {
+        errorMessage = backendError;
+      }
+      
       toast({
         variant: "destructive",
-        title: "Login failed",
+        title: errorTitle,
         description: errorMessage,
       });
     } finally {

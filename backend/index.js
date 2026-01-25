@@ -236,6 +236,97 @@ const sendResolutionEmail = async (complaint) => {
   }
 };
 
+// ================= DEBUG: DATABASE USERS ENDPOINT (Development Only) =================
+// IMPORTANT: Remove or protect this endpoint in production
+app.get("/api/debug/users", async (req, res) => {
+  // Only allow in development or with special header
+  const isDevMode = process.env.NODE_ENV !== 'production';
+  const hasDebugKey = req.headers['x-debug-key'] === process.env.DEBUG_SECRET;
+  
+  if (!isDevMode && !hasDebugKey) {
+    return res.status(403).json({ error: "Debug endpoints disabled in production" });
+  }
+  
+  console.log("\n========== DEBUG: USERS ==========");
+  try {
+    const [users] = await db.promise().query(
+      'SELECT id, email, role, email_verified, password_hash, created_at FROM users ORDER BY id'
+    );
+    
+    console.log("📊 Total users:", users.length);
+    users.forEach(u => {
+      console.log(`  - ID ${u.id}: ${u.email} (${u.role}) - Hash: ${u.password_hash?.substring(0,20)}...`);
+    });
+    
+    res.json({
+      count: users.length,
+      users: users.map(u => ({
+        id: u.id,
+        email: u.email,
+        role: u.role,
+        email_verified: u.email_verified,
+        password_hash_length: u.password_hash?.length,
+        password_hash_preview: u.password_hash?.substring(0, 30) + '...',
+        password_hash_valid: u.password_hash?.startsWith('$2'),
+        created_at: u.created_at
+      }))
+    });
+  } catch (err) {
+    console.error("Debug users error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================= DEBUG: TEST BCRYPT ENDPOINT (Development Only) =================
+app.post("/api/debug/test-password", async (req, res) => {
+  // Only allow in development or with special header
+  const isDevMode = process.env.NODE_ENV !== 'production';
+  const hasDebugKey = req.headers['x-debug-key'] === process.env.DEBUG_SECRET;
+  
+  if (!isDevMode && !hasDebugKey) {
+    return res.status(403).json({ error: "Debug endpoints disabled in production" });
+  }
+  
+  const bcrypt = require('bcryptjs');
+  const { email, password } = req.body;
+  
+  console.log("\n========== DEBUG: TEST PASSWORD ==========");
+  console.log("Testing for email:", email);
+  
+  try {
+    const [users] = await db.promise().query(
+      'SELECT * FROM users WHERE LOWER(email) = LOWER(?)',
+      [email]
+    );
+    
+    if (users.length === 0) {
+      return res.json({ found: false, message: 'User not found' });
+    }
+    
+    const user = users[0];
+    const hash = user.password_hash;
+    
+    console.log("Hash from DB:", hash);
+    console.log("Password to test:", password);
+    
+    const isMatch = await bcrypt.compare(password, hash);
+    
+    console.log("Bcrypt compare result:", isMatch);
+    
+    res.json({
+      found: true,
+      email: user.email,
+      hash_length: hash?.length,
+      hash_preview: hash?.substring(0, 30),
+      hash_valid_format: hash?.startsWith('$2'),
+      password_matches: isMatch
+    });
+  } catch (err) {
+    console.error("Test password error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ================= TEST EMAIL ENDPOINT =================
 app.get("/api/test-email", async (req, res) => {
   console.log("\n========== TEST EMAIL ENDPOINT ==========");

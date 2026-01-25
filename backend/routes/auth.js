@@ -31,11 +31,19 @@ const initAuthRoutes = (db) => {
     try {
       const { email, password, name } = req.body;
 
+      console.log('\n========== SIGNUP DEBUG START ==========');
       console.log('📝 Signup attempt for:', email);
+      console.log('📝 Password provided:', password ? `Yes (${password.length} chars)` : 'No');
+      console.log('📝 Name provided:', name || 'No');
 
       if (!email || !password) {
+        console.log('📝 ❌ Missing email or password');
         return res.status(400).json({ error: 'Email and password are required' });
       }
+
+      // Debug: Check total users in DB before signup
+      const [countResult] = await db.promise().query('SELECT COUNT(*) as count FROM users');
+      console.log('📝 Current users count in DB:', countResult[0].count);
 
       // Check if user already exists (case-insensitive)
       const [existing] = await db.promise().query(
@@ -44,7 +52,8 @@ const initAuthRoutes = (db) => {
       );
 
       if (existing.length > 0) {
-        console.log('📝 User already exists:', email);
+        console.log('📝 ❌ User already exists:', email);
+        console.log('========== SIGNUP DEBUG END ==========\n');
         return res.status(409).json({ error: 'User with this email already exists' });
       }
 
@@ -52,7 +61,9 @@ const initAuthRoutes = (db) => {
       const saltRounds = 10;
       const passwordHash = await bcrypt.hash(password, saltRounds);
       
-      console.log('📝 Password hashed, length:', passwordHash.length);
+      console.log('📝 Password hashed successfully');
+      console.log('📝 Hash length:', passwordHash.length);
+      console.log('📝 Hash starts with $2:', passwordHash.startsWith('$2') ? 'Yes ✅' : 'No ❌');
 
       // Insert new user (store email in lowercase for consistency)
       const [result] = await db.promise().query(
@@ -61,7 +72,28 @@ const initAuthRoutes = (db) => {
         [email, passwordHash, name || null, ROLES.USER]
       );
 
-      console.log('📝 User created with ID:', result.insertId);
+      console.log('📝 ✅ User created with ID:', result.insertId);
+      console.log('📝 ✅ Rows affected:', result.affectedRows);
+
+      // Debug: Verify user was actually inserted
+      const [verifyInsert] = await db.promise().query(
+        'SELECT id, email, password_hash, role FROM users WHERE id = ?',
+        [result.insertId]
+      );
+      
+      if (verifyInsert.length > 0) {
+        console.log('📝 ✅ VERIFIED: User exists in DB after insert');
+        console.log('📝 ✅ Stored email:', verifyInsert[0].email);
+        console.log('📝 ✅ Stored hash length:', verifyInsert[0].password_hash?.length);
+        console.log('📝 ✅ Stored hash preview:', verifyInsert[0].password_hash?.substring(0, 20) + '...');
+      } else {
+        console.log('📝 ❌ CRITICAL: User NOT found in DB after insert!');
+      }
+
+      // Debug: Count users after insert
+      const [countAfter] = await db.promise().query('SELECT COUNT(*) as count FROM users');
+      console.log('📝 Users count after signup:', countAfter[0].count);
+      console.log('========== SIGNUP DEBUG END ==========\n');
 
       // Generate email verification token
       const verificationToken = generateEmailVerificationToken(email);
@@ -87,12 +119,23 @@ const initAuthRoutes = (db) => {
     try {
       const { email, password } = req.body;
 
+      console.log('\n========== LOGIN DEBUG START ==========');
       console.log('🔐 Login attempt for:', email);
+      console.log('🔐 Password provided:', password ? `Yes (${password.length} chars)` : 'No');
 
       if (!email || !password) {
-        console.log('🔐 Missing email or password');
+        console.log('🔐 ❌ Missing email or password');
+        console.log('========== LOGIN DEBUG END ==========\n');
         return res.status(400).json({ error: 'Email and password are required' });
       }
+
+      // Debug: Check total users in DB
+      const [countResult] = await db.promise().query('SELECT COUNT(*) as count FROM users');
+      console.log('🔐 Total users in DB:', countResult[0].count);
+
+      // Debug: List all users (emails only) for debugging
+      const [allUsers] = await db.promise().query('SELECT id, email, role FROM users');
+      console.log('🔐 All users in DB:', allUsers.map(u => `${u.id}:${u.email}(${u.role})`).join(', '));
 
       // Find user (case-insensitive email comparison)
       const [users] = await db.promise().query(
@@ -100,23 +143,31 @@ const initAuthRoutes = (db) => {
         [email]
       );
 
-      console.log('🔐 User found:', users.length > 0 ? 'Yes' : 'No');
+      console.log('🔐 User found for email "' + email + '":', users.length > 0 ? 'Yes ✅' : 'No ❌');
 
       if (users.length === 0) {
+        console.log('🔐 ❌ LOGIN FAILED: User not found in database');
+        console.log('========== LOGIN DEBUG END ==========\n');
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
       const user = users[0];
+      console.log('🔐 Fetched user:', { id: user.id, email: user.email, role: user.role });
 
       // Debug: Check password hash validity
-      console.log('🔐 Password hash length:', user.password_hash?.length || 0);
-      console.log('🔐 Password hash starts with $2:', user.password_hash?.startsWith('$2') ? 'Yes' : 'No');
+      console.log('🔐 Password hash from DB:');
+      console.log('   - Length:', user.password_hash?.length || 0);
+      console.log('   - Starts with $2:', user.password_hash?.startsWith('$2') ? 'Yes ✅' : 'No ❌');
+      console.log('   - Preview:', user.password_hash?.substring(0, 30) + '...');
 
       // Verify password
+      console.log('🔐 Comparing passwords...');
       const validPassword = await bcrypt.compare(password, user.password_hash);
-      console.log('🔐 Password valid:', validPassword ? 'Yes' : 'No');
+      console.log('🔐 Password compare result:', validPassword ? 'MATCH ✅' : 'NO MATCH ❌');
       
       if (!validPassword) {
+        console.log('🔐 ❌ LOGIN FAILED: Password does not match');
+        console.log('========== LOGIN DEBUG END ==========\n');
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
@@ -138,6 +189,10 @@ const initAuthRoutes = (db) => {
       // Store refresh token
       refreshTokens.add(refreshToken);
 
+      console.log('🔐 ✅ LOGIN SUCCESS for:', user.email);
+      console.log('🔐 ✅ User role:', user.role);
+      console.log('========== LOGIN DEBUG END ==========\n');
+
       res.json({
         message: 'Login successful',
         accessToken,
@@ -152,8 +207,9 @@ const initAuthRoutes = (db) => {
       });
 
     } catch (err) {
-      console.error('Login error:', err);
-      res.status(500).json({ error: 'Login failed' });
+      console.error('🔐 ❌ LOGIN ERROR:', err);
+      console.log('========== LOGIN DEBUG END ==========\n');
+      res.status(500).json({ error: 'Login failed: ' + err.message });
     }
   });
 
