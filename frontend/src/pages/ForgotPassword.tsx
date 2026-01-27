@@ -11,8 +11,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { api } from "@/lib/api";
+import { api, classifyError } from "@/lib/api";
 import { ArrowLeft, Mail, Loader2 } from "lucide-react";
+import { AxiosError } from "axios";
 
 const ForgotPassword = () => {
   const navigate = useNavigate();
@@ -34,11 +35,24 @@ const ForgotPassword = () => {
         description: "If an account exists, you'll receive a password reset link.",
       });
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to send reset email",
-        variant: "destructive",
-      });
+      console.error("ForgotPassword Error:", error);
+      
+      if (error instanceof AxiosError) {
+        const classified = classifyError(error);
+        console.error("Classified error:", classified);
+        
+        toast({
+          title: classified.type === 'NETWORK_ERROR' ? "Connection Error" : "Error",
+          description: classified.message,
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Error",
+          description: error.message || "Failed to send reset email",
+          variant: "destructive",
+        });
+      }
     } finally {
       setIsLoading(false);
     }

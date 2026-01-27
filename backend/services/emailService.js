@@ -1,6 +1,7 @@
 /**
  * Email Service
  * Centralized email functionality for the application
+ * All emails are sent to actual recipients from database - NO hardcoded emails
  */
 
 const nodemailer = require('nodemailer');
@@ -20,8 +21,8 @@ const initializeTransporter = () => {
   }
 
   transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
+    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+    port: parseInt(process.env.EMAIL_PORT) || 587,
     secure: false, // Use STARTTLS
     auth: {
       user: process.env.EMAIL_USER,
@@ -75,6 +76,76 @@ const isEmailEnabled = () => emailEnabled;
 const getTransporter = () => transporter;
 
 /**
+ * Get admin email from environment (NOT hardcoded)
+ */
+const getAdminEmail = () => process.env.ADMIN_EMAIL || null;
+
+/**
+ * Send Complaint Submission Confirmation Email to User
+ * @param {object} complaint - Complaint object with user email
+ */
+const sendComplaintSubmissionEmail = async (complaint) => {
+  if (!emailEnabled || !transporter) {
+    console.log('📧 ⚠️ Email disabled - skipping submission notification');
+    return false;
+  }
+
+  // Email goes to the user who submitted the complaint
+  if (!complaint?.email) {
+    console.log('📧 ⚠️ No email address - skipping submission notification');
+    return false;
+  }
+
+  try {
+    const mailOptions = {
+      from: `"Complaint Portal" <${process.env.EMAIL_USER}>`,
+      to: complaint.email,  // Send to the complaint submitter
+      subject: `📝 Complaint #${complaint.id} Submitted Successfully`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #dbeafe; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #3b82f6;">
+            <h2 style="color: #1d4ed8; margin: 0;">📝 Complaint Submitted Successfully</h2>
+          </div>
+          
+          <p>Dear ${complaint.name || 'User'},</p>
+          
+          <p>Your complaint has been successfully submitted and is now being reviewed by our team.</p>
+          
+          <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Complaint ID:</strong> #${complaint.id}</p>
+            <p><strong>Category:</strong> ${complaint.category}</p>
+            <p><strong>Priority:</strong> <span style="text-transform: uppercase;">${complaint.priority}</span></p>
+            <p><strong>Status:</strong> <span style="color: #3b82f6; font-weight: bold;">NEW</span></p>
+          </div>
+          
+          <div style="margin: 20px 0;">
+            <h3>Description:</h3>
+            <p style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid #3b82f6;">
+              ${complaint.description}
+            </p>
+          </div>
+          
+          <p>You will receive an email notification when your complaint is resolved.</p>
+          
+          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
+          
+          <p style="color: #6b7280; font-size: 14px;">
+            Thank you for using our Complaint Portal.
+          </p>
+        </div>
+      `,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`📧 ✅ Submission confirmation sent to: ${complaint.email}`);
+    return true;
+  } catch (err) {
+    console.error(`📧 ❌ Failed to send submission email to ${complaint.email}:`, err.message);
+    return false;
+  }
+};
+
+/**
  * Send Escalation Email to Admin
  * @param {object} complaint - Complaint object
  * @param {number} hoursOverdue - Hours past SLA
@@ -82,13 +153,14 @@ const getTransporter = () => transporter;
 const sendEscalationEmail = async (complaint, hoursOverdue) => {
   if (!emailEnabled || !transporter) {
     console.log('📧 ⚠️ Email disabled - skipping escalation notification');
-    return;
+    return false;
   }
 
-  const adminEmail = process.env.ADMIN_EMAIL;
+  // Get admin email from environment - NOT hardcoded
+  const adminEmail = getAdminEmail();
   if (!adminEmail) {
     console.log('📧 ⚠️ ADMIN_EMAIL not configured - skipping escalation notification');
-    return;
+    return false;
   }
 
   try {
@@ -103,7 +175,7 @@ const sendEscalationEmail = async (complaint, hoursOverdue) => {
 
     const mailOptions = {
       from: `"Complaint Portal - URGENT" <${process.env.EMAIL_USER}>`,
-      to: adminEmail,
+      to: adminEmail,  // Send to configured admin email
       subject: `🚨 ESCALATION: Complaint #${complaint.id} - ${complaint.priority.toUpperCase()} Priority`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 3px solid #ef4444;">
@@ -373,6 +445,8 @@ module.exports = {
   initializeTransporter,
   isEmailEnabled,
   getTransporter,
+  getAdminEmail,
+  sendComplaintSubmissionEmail,
   sendEscalationEmail,
   sendResolutionEmail,
   sendVerificationEmail,

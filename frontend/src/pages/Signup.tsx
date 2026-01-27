@@ -5,8 +5,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { api } from "@/lib/api";
+import { api, classifyError } from "@/lib/api";
 import { Loader2, Eye, EyeOff, CheckCircle2, XCircle } from "lucide-react";
+import { AxiosError } from "axios";
 
 const Signup = () => {
   const navigate = useNavigate();
@@ -88,6 +89,19 @@ const Signup = () => {
       navigate("/login");
     } catch (err: any) {
       console.error("Signup error:", err);
+      
+      // Check for network errors first
+      if (err instanceof AxiosError && !err.response) {
+        const classified = classifyError(err);
+        console.error("Classified error:", classified);
+        toast({
+          variant: "destructive",
+          title: "Connection Error",
+          description: classified.message,
+        });
+        return;
+      }
+      
       const errorMessage = err.response?.data?.error || "Signup failed. Please try again.";
       
       // Check if user already exists

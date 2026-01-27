@@ -11,27 +11,33 @@ const runMigrations = async (db) => {
     {
       name: 'Add escalation_level to complaints',
       check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-              WHERE TABLE_NAME = 'complaints' AND COLUMN_NAME = 'escalation_level'`,
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'complaints' AND COLUMN_NAME = 'escalation_level'`,
       sql: 'ALTER TABLE complaints ADD COLUMN escalation_level INT DEFAULT 0',
     },
     {
       name: 'Add escalated_at to complaints',
       check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-              WHERE TABLE_NAME = 'complaints' AND COLUMN_NAME = 'escalated_at'`,
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'complaints' AND COLUMN_NAME = 'escalated_at'`,
       sql: 'ALTER TABLE complaints ADD COLUMN escalated_at TIMESTAMP NULL',
     },
     {
       name: 'Add resolution_message to complaints',
       check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-              WHERE TABLE_NAME = 'complaints' AND COLUMN_NAME = 'resolution_message'`,
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'complaints' AND COLUMN_NAME = 'resolution_message'`,
       sql: 'ALTER TABLE complaints ADD COLUMN resolution_message TEXT',
+    },
+    {
+      name: 'Add user_id to complaints',
+      check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'complaints' AND COLUMN_NAME = 'user_id'`,
+      sql: 'ALTER TABLE complaints ADD COLUMN user_id INT NULL',
     },
 
     // Phase 7: Users table
     {
       name: 'Create users table',
       check: `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES 
-              WHERE TABLE_NAME = 'users'`,
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'`,
       sql: `CREATE TABLE users (
         id INT PRIMARY KEY AUTO_INCREMENT,
         email VARCHAR(255) NOT NULL UNIQUE,
@@ -39,6 +45,8 @@ const runMigrations = async (db) => {
         name VARCHAR(255),
         role ENUM('user', 'admin', 'superadmin') NOT NULL DEFAULT 'user',
         email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+        reset_token_hash VARCHAR(255) NULL,
+        reset_token_expires TIMESTAMP NULL,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         INDEX idx_email (email),
@@ -46,11 +54,25 @@ const runMigrations = async (db) => {
       )`,
     },
 
+    // Add reset token columns to existing users table
+    {
+      name: 'Add reset_token_hash to users',
+      check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'reset_token_hash'`,
+      sql: 'ALTER TABLE users ADD COLUMN reset_token_hash VARCHAR(255) NULL',
+    },
+    {
+      name: 'Add reset_token_expires to users',
+      check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'reset_token_expires'`,
+      sql: 'ALTER TABLE users ADD COLUMN reset_token_expires TIMESTAMP NULL',
+    },
+
     // Admin whitelist table
     {
       name: 'Create admin_whitelist table',
       check: `SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES 
-              WHERE TABLE_NAME = 'admin_whitelist'`,
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'admin_whitelist'`,
       sql: `CREATE TABLE admin_whitelist (
         id INT PRIMARY KEY AUTO_INCREMENT,
         email VARCHAR(255) NOT NULL UNIQUE,
@@ -62,13 +84,13 @@ const runMigrations = async (db) => {
     {
       name: 'Add escalation_level to escalation_history',
       check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-              WHERE TABLE_NAME = 'escalation_history' AND COLUMN_NAME = 'escalation_level'`,
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'escalation_history' AND COLUMN_NAME = 'escalation_level'`,
       sql: 'ALTER TABLE escalation_history ADD COLUMN escalation_level INT DEFAULT 1',
     },
     {
       name: 'Add reason to escalation_history',
       check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
-              WHERE TABLE_NAME = 'escalation_history' AND COLUMN_NAME = 'reason'`,
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'escalation_history' AND COLUMN_NAME = 'reason'`,
       sql: 'ALTER TABLE escalation_history ADD COLUMN reason TEXT',
     },
   ];

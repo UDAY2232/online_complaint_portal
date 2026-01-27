@@ -3,11 +3,14 @@ import axios, { AxiosError } from "axios";
 // Use environment variable for API URL (supports both dev and production)
 // In development: set VITE_API_URL in .env (e.g., http://localhost:4000/api)
 // In production: set VITE_API_URL in .env.production (e.g., https://your-backend.onrender.com/api)
-// IMPORTANT: Never hardcode localhost URLs - always use environment variables
-const API_BASE_URL = import.meta.env.VITE_API_URL;
+// Fallback to localhost for development if not set
+const API_BASE_URL = import.meta.env.VITE_API_URL || 
+  (import.meta.env.MODE === 'production' 
+    ? '' // Empty will cause clear error in production
+    : 'http://localhost:4000/api'); // Dev fallback
 
 if (!API_BASE_URL) {
-  console.error("❌ VITE_API_URL is not set! Please configure your .env file.");
+  console.error("❌ VITE_API_URL is not set! Please configure your environment variables.");
 }
 
 console.log("🔗 API Base URL:", API_BASE_URL);

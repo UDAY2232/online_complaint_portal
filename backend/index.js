@@ -11,7 +11,7 @@ const cloudinary = require("./utils/cloudinary");
 // ================= PHASE 6 & 7 IMPORTS =================
 const { runMigrations } = require("./utils/migrations");
 const { startEscalationScheduler } = require("./services/scheduler");
-const { initializeTransporter, sendResolutionEmail: sendResolutionEmailService } = require("./services/emailService");
+const { initializeTransporter, sendResolutionEmail: sendResolutionEmailService, sendComplaintSubmissionEmail } = require("./services/emailService");
 const { authenticate, optionalAuth, requireAdmin, requireUser } = require("./middleware/auth");
 const initAuthRoutes = require("./routes/auth");
 const initAdminRoutes = require("./routes/admin");
@@ -493,11 +493,24 @@ app.post(
         imageUrl = result.secure_url;
       }
 
+      // Try to find user_id if email is provided
+      let userId = null;
+      if (email && is_anonymous !== "true") {
+        const [users] = await db.promise().query(
+          'SELECT id FROM users WHERE LOWER(email) = LOWER(?)',
+          [email]
+        );
+        if (users.length > 0) {
+          userId = users[0].id;
+        }
+      }
+
       const [resultDb] = await db.promise().query(
         `INSERT INTO complaints
-        (category, description, email, name, priority, is_anonymous, status, problem_image_url, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'new', ?, NOW())`,
+        (user_id, category, description, email, name, priority, is_anonymous, status, problem_image_url, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'new', ?, NOW())`,
         [
+          userId,
           category,
           description,
           email || null,
@@ -507,6 +520,19 @@ app.post(
           imageUrl,
         ]
       );
+
+      // Fetch the created complaint
+      const [newComplaint] = await db.promise().query(
+        'SELECT * FROM complaints WHERE id = ?',
+        [resultDb.insertId]
+      );
+
+      // Send confirmation email to user (non-blocking)
+      if (email && is_anonymous !== "true") {
+        sendComplaintSubmissionEmail(newComplaint[0]).catch(err => {
+          console.error('📧 Failed to send submission email:', err.message);
+        });
+      }
 
       res.status(201).json({
         message: "Complaint submitted successfully",
@@ -899,9 +925,10 @@ app.post("/api/user/complaints", authenticate, upload.single("image"), async (re
 
     const [resultDb] = await db.promise().query(
       `INSERT INTO complaints
-      (category, description, email, name, priority, is_anonymous, status, problem_image_url, created_at)
-      VALUES (?, ?, ?, ?, ?, FALSE, 'new', ?, NOW())`,
+      (user_id, category, description, email, name, priority, is_anonymous, status, problem_image_url, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, FALSE, 'new', ?, NOW())`,
       [
+        req.user.id,  // Link to authenticated user
         category,
         description,
         email,
@@ -910,6 +937,17 @@ app.post("/api/user/complaints", authenticate, upload.single("image"), async (re
         imageUrl,
       ]
     );
+
+    // Fetch the created complaint
+    const [newComplaint] = await db.promise().query(
+      'SELECT * FROM complaints WHERE id = ?',
+      [resultDb.insertId]
+    );
+
+    // Send confirmation email to user
+    sendComplaintSubmissionEmail(newComplaint[0]).catch(err => {
+      console.error('📧 Failed to send submission email:', err.message);
+    });
 
     res.status(201).json({
       message: "Complaint submitted successfully",

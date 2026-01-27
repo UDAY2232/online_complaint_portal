@@ -1,6 +1,7 @@
 /**
  * Password Reset Routes
  * Handles forgot password and reset password functionality
+ * Tokens are stored in database for production reliability
  */
 
 const express = require('express');
@@ -11,14 +12,31 @@ const router = express.Router();
 const { sendPasswordResetEmail } = require('../services/emailService');
 const { passwordResetLimiter } = require('../middleware/security');
 
-// Store for reset tokens (in production, store in database with expiry)
-const resetTokens = new Map();
-
 /**
  * Initialize password reset routes
  * @param {object} db - MySQL database connection
  */
 const initPasswordResetRoutes = (db) => {
+
+  // Ensure reset token columns exist (run migration)
+  const ensureResetColumns = async () => {
+    try {
+      // Check if columns exist first
+      const [columns] = await db.promise().query(`
+        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'reset_token_hash'
+      `);
+      
+      if (columns.length === 0) {
+        await db.promise().query(`ALTER TABLE users ADD COLUMN reset_token_hash VARCHAR(255) NULL`);
+        await db.promise().query(`ALTER TABLE users ADD COLUMN reset_token_expires TIMESTAMP NULL`);
+        console.log('📧 ✅ Reset token columns added to users table');
+      }
+    } catch (err) {
+      console.log('📧 Reset columns migration:', err.message);
+    }
+  };
+  ensureResetColumns();
 
   // ================= FORGOT PASSWORD =================
   router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
@@ -37,7 +55,7 @@ const initPasswordResetRoutes = (db) => {
         message: 'If an account exists with this email, you will receive a password reset link.' 
       };
 
-      // Check if user exists (case-insensitive like login)
+      // Check if user exists (case-insensitive)
       const [users] = await db.promise().query(
         'SELECT id, email, name FROM users WHERE LOWER(email) = LOWER(?)',
         [email]
@@ -46,7 +64,6 @@ const initPasswordResetRoutes = (db) => {
       console.log('📧 User found:', users.length > 0 ? 'Yes' : 'No');
 
       if (users.length === 0) {
-        // Don't reveal that user doesn't exist
         console.log('📧 User not found, returning success anyway (security)');
         console.log('========== FORGOT PASSWORD END ==========\n');
         return res.json(successResponse);
@@ -58,34 +75,29 @@ const initPasswordResetRoutes = (db) => {
       // Generate reset token
       const resetToken = crypto.randomBytes(32).toString('hex');
       const tokenHash = crypto.createHash('sha256').update(resetToken).digest('hex');
-      
-      // Store token with expiry (1 hour)
-      resetTokens.set(tokenHash, {
-        userId: user.id,
-        email: user.email,
-        expiresAt: Date.now() + 60 * 60 * 1000, // 1 hour
-      });
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-      console.log('📧 Reset token generated and stored');
+      // Store hashed token in database
+      await db.promise().query(
+        'UPDATE users SET reset_token_hash = ?, reset_token_expires = ? WHERE id = ?',
+        [tokenHash, expiresAt, user.id]
+      );
 
-      // Clean up expired tokens periodically
-      for (const [key, value] of resetTokens) {
-        if (value.expiresAt < Date.now()) {
-          resetTokens.delete(key);
-        }
-      }
+      console.log('📧 Reset token stored in database');
 
-      // Send reset email
-      const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
+      // Build reset URL using environment variable
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+      const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
       console.log('📧 Reset URL:', resetUrl);
       
-      console.log('📧 Attempting to send email...');
+      // Send reset email to the user's actual email
+      console.log('📧 Sending email to:', user.email);
       const emailSent = await sendPasswordResetEmail(user.email, user.name, resetUrl);
       
       if (emailSent) {
-        console.log('📧 ✅ Password reset email sent successfully!');
+        console.log('📧 ✅ Password reset email sent to:', user.email);
       } else {
-        console.log('📧 ⚠️ Email sending returned false - check email service');
+        console.log('📧 ⚠️ Email sending returned false');
       }
       
       console.log('========== FORGOT PASSWORD END ==========\n');
@@ -107,18 +119,30 @@ const initPasswordResetRoutes = (db) => {
       }
 
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-      const tokenData = resetTokens.get(tokenHash);
+      
+      // Find user with this token in database
+      const [users] = await db.promise().query(
+        'SELECT id, email, reset_token_expires FROM users WHERE reset_token_hash = ?',
+        [tokenHash]
+      );
 
-      if (!tokenData) {
+      if (users.length === 0) {
         return res.status(400).json({ error: 'Invalid or expired token', valid: false });
       }
 
-      if (tokenData.expiresAt < Date.now()) {
-        resetTokens.delete(tokenHash);
+      const user = users[0];
+
+      // Check expiry
+      if (new Date(user.reset_token_expires) < new Date()) {
+        // Clear expired token
+        await db.promise().query(
+          'UPDATE users SET reset_token_hash = NULL, reset_token_expires = NULL WHERE id = ?',
+          [user.id]
+        );
         return res.status(400).json({ error: 'Token has expired', valid: false });
       }
 
-      res.json({ valid: true, email: tokenData.email });
+      res.json({ valid: true, email: user.email });
 
     } catch (err) {
       console.error('Verify reset token error:', err);
@@ -130,6 +154,8 @@ const initPasswordResetRoutes = (db) => {
   router.post('/reset-password', async (req, res) => {
     try {
       const { token, newPassword } = req.body;
+
+      console.log('\n========== RESET PASSWORD REQUEST ==========');
 
       if (!token || !newPassword) {
         return res.status(400).json({ error: 'Token and new password are required' });
@@ -144,29 +170,43 @@ const initPasswordResetRoutes = (db) => {
       }
 
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-      const tokenData = resetTokens.get(tokenHash);
+      
+      // Find user with this token from database
+      const [users] = await db.promise().query(
+        'SELECT id, email, reset_token_expires FROM users WHERE reset_token_hash = ?',
+        [tokenHash]
+      );
 
-      if (!tokenData) {
+      if (users.length === 0) {
+        console.log('📧 ❌ Invalid token - no user found');
         return res.status(400).json({ error: 'Invalid or expired token' });
       }
 
-      if (tokenData.expiresAt < Date.now()) {
-        resetTokens.delete(tokenHash);
+      const user = users[0];
+      console.log('📧 User found:', user.email);
+
+      // Check expiry
+      if (new Date(user.reset_token_expires) < new Date()) {
+        console.log('📧 ❌ Token expired');
+        await db.promise().query(
+          'UPDATE users SET reset_token_hash = NULL, reset_token_expires = NULL WHERE id = ?',
+          [user.id]
+        );
         return res.status(400).json({ error: 'Token has expired' });
       }
 
-      // Hash new password
+      // Hash new password with bcrypt
       const saltRounds = 10;
       const passwordHash = await bcrypt.hash(newPassword, saltRounds);
 
-      // Update user's password
+      // Update password and clear reset token atomically
       await db.promise().query(
-        'UPDATE users SET password_hash = ? WHERE id = ?',
-        [passwordHash, tokenData.userId]
+        'UPDATE users SET password_hash = ?, reset_token_hash = NULL, reset_token_expires = NULL WHERE id = ?',
+        [passwordHash, user.id]
       );
 
-      // Remove used token
-      resetTokens.delete(tokenHash);
+      console.log('📧 ✅ Password reset successfully for:', user.email);
+      console.log('========== RESET PASSWORD END ==========\n');
 
       res.json({ message: 'Password reset successfully. You can now login with your new password.' });
 
