@@ -1,12 +1,90 @@
-import axios from "axios";
+import axios, { AxiosError } from "axios";
 
-// Production URL for Render deployment
-const API_BASE_URL = "http://localhost:4000/api";
-// const API_BASE_URL = "https://online-complaint-backend.onrender.com/api";
+// Use environment variable for API URL (supports both dev and production)
+// In development: set VITE_API_URL in .env (e.g., http://localhost:4000/api)
+// In production: set VITE_API_URL in .env.production (e.g., https://your-backend.onrender.com/api)
+// IMPORTANT: Never hardcode localhost URLs - always use environment variables
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+
+if (!API_BASE_URL) {
+  console.error("❌ VITE_API_URL is not set! Please configure your .env file.");
+}
+
+console.log("🔗 API Base URL:", API_BASE_URL);
+console.log("🔗 Environment:", import.meta.env.MODE);
 
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 30000, // 30 second timeout for slow connections
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
+
+// Helper to classify error types for better debugging
+export const classifyError = (error: AxiosError): { type: string; message: string; details: string } => {
+  if (!error.response) {
+    // Network error - no response received
+    if (error.code === 'ERR_NETWORK') {
+      return {
+        type: 'NETWORK_ERROR',
+        message: 'Unable to connect to server',
+        details: 'Check if the backend is running and CORS is configured correctly',
+      };
+    }
+    if (error.code === 'ECONNABORTED') {
+      return {
+        type: 'TIMEOUT',
+        message: 'Request timed out',
+        details: 'The server took too long to respond',
+      };
+    }
+    return {
+      type: 'CONNECTION_ERROR',
+      message: 'Connection failed',
+      details: error.message,
+    };
+  }
+  
+  // Server responded with error status
+  const status = error.response.status;
+  const data = error.response.data as any;
+  
+  if (status === 404) {
+    return {
+      type: 'NOT_FOUND',
+      message: 'Endpoint not found (404)',
+      details: `The API endpoint ${error.config?.url} does not exist. Check the route configuration.`,
+    };
+  }
+  if (status === 401) {
+    return {
+      type: 'UNAUTHORIZED',
+      message: data?.error || 'Invalid credentials',
+      details: 'Authentication failed',
+    };
+  }
+  if (status === 403) {
+    return {
+      type: 'FORBIDDEN',
+      message: 'Access denied',
+      details: 'You do not have permission to access this resource',
+    };
+  }
+  if (status === 500) {
+    return {
+      type: 'SERVER_ERROR',
+      message: 'Server error',
+      details: data?.error || 'An internal server error occurred',
+    };
+  }
+  
+  return {
+    type: 'API_ERROR',
+    message: data?.error || `Request failed with status ${status}`,
+    details: JSON.stringify(data),
+  };
+};
 
 // Add auth token to all requests
 axiosInstance.interceptors.request.use(

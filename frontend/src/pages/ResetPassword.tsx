@@ -45,8 +45,10 @@ const ResetPassword = () => {
 
       try {
         const response = await api.verifyResetToken(token);
-        setIsValidToken(response.valid);
-      } catch (error) {
+        console.log("🔑 Token verification response:", response.data);
+        setIsValidToken(response.data.valid);
+      } catch (error: any) {
+        console.error("🔑 Token verification error:", error.response?.data || error.message);
         setIsValidToken(false);
       } finally {
         setIsVerifying(false);
@@ -71,16 +73,19 @@ const ResetPassword = () => {
     setIsLoading(true);
 
     try {
-      await api.resetPassword(token!, password);
+      const response = await api.resetPassword(token!, password);
+      console.log("🔑 Password reset response:", response.data);
       setIsSuccess(true);
       toast({
         title: "Password Reset Successful",
         description: "You can now login with your new password.",
       });
     } catch (error: any) {
+      console.error("🔑 Password reset error:", error.response?.data || error.message);
+      const errorMessage = error.response?.data?.error || error.message || "Failed to reset password";
       toast({
         title: "Error",
-        description: error.message || "Failed to reset password",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

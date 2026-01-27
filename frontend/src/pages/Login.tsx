@@ -11,7 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { api } from "@/lib/api";
+import { api, classifyError } from "@/lib/api";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 
 const Login = () => {
@@ -74,24 +74,44 @@ const Login = () => {
         navigate("/user/dashboard", { replace: true });
       }
     } catch (err: any) {
-      console.error("Login error:", err);
-      const backendError = err.response?.data?.error;
+      // 🔍 DEBUG: Use classifyError for better error diagnostics
+      const errorInfo = classifyError(err);
+      console.error("=== LOGIN ERROR DEBUG ===");
+      console.error("Error Type:", errorInfo.type);
+      console.error("Error Message:", errorInfo.message);
+      console.error("Error Details:", errorInfo.details);
+      console.error("Full error object:", err);
+      console.error("Request URL:", err.config?.baseURL + err.config?.url);
+      console.error("=========================");
+      
       let errorMessage = "Login failed. Please check your credentials.";
       let errorTitle = "Login failed";
       
-      // Provide more helpful error messages
-      if (err.response?.status === 401) {
-        errorMessage = "Invalid email or password. Please try again or use 'Forgot password?' if you've forgotten your credentials.";
-      } else if (err.response?.status === 400) {
-        errorMessage = backendError || "Please enter both email and password.";
-      } else if (err.response?.status === 500) {
-        errorMessage = "Server error. Please try again later.";
-        errorTitle = "Server error";
-      } else if (!err.response) {
-        errorMessage = "Unable to connect to server. Please check your internet connection.";
-        errorTitle = "Connection error";
-      } else if (backendError) {
-        errorMessage = backendError;
+      // Use classified error for better UX
+      switch (errorInfo.type) {
+        case 'NETWORK_ERROR':
+        case 'CONNECTION_ERROR':
+          errorTitle = "Connection error";
+          errorMessage = `${errorInfo.message}. ${errorInfo.details}`;
+          break;
+        case 'TIMEOUT':
+          errorTitle = "Request timeout";
+          errorMessage = "The server took too long to respond. Please try again.";
+          break;
+        case 'NOT_FOUND':
+          errorTitle = "Configuration error";
+          errorMessage = "API endpoint not found. Please contact support.";
+          console.error("🚨 404 ERROR - Check if backend routes match frontend API calls!");
+          break;
+        case 'UNAUTHORIZED':
+          errorMessage = "Invalid email or password. Please try again or use 'Forgot password?' if you've forgotten your credentials.";
+          break;
+        case 'SERVER_ERROR':
+          errorTitle = "Server error";
+          errorMessage = "Server error. Please try again later.";
+          break;
+        default:
+          errorMessage = errorInfo.message || "Login failed. Please check your credentials.";
       }
       
       toast({

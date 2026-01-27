@@ -39,27 +39,70 @@ app.use(compressionMiddleware); // Gzip compression
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:3000',
+  'http://localhost:8081',
   'http://127.0.0.1:5173',
+  'http://127.0.0.1:8081',
+  'https://online-complaint-portal.vercel.app',
+  'https://online-complaint-portal-git-main.vercel.app',
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
+console.log('🌐 CORS allowed origins:', allowedOrigins);
+
 app.use(cors({
   origin: function(origin, callback) {
-    // Allow requests with no origin (mobile apps, curl, etc.)
+    // Allow requests with no origin (mobile apps, curl, Postman, etc.)
     if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
+    
+    // Also allow any vercel.app subdomain for preview deployments
+    if (origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    
+    console.log('⚠️ CORS blocked origin:', origin);
     return callback(null, false);
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(sanitizeInput); // XSS protection
 app.use(requestLogger); // Request logging
+
+// ================= HEALTH CHECK ENDPOINT =================
+// Must be before rate limiting for monitoring tools
+// Root health check for load balancers and uptime monitors
+app.get('/', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok',
+    service: 'Online Complaint Portal API',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
+
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime()
+  });
+});
 
 // Rate limiting
 app.use('/api/auth/login', authLimiter);
@@ -1046,7 +1089,13 @@ app.use((err, req, res, next) => {
 
 // ================= 404 HANDLER =================
 app.use((req, res) => {
-  res.status(404).json({ error: "Endpoint not found" });
+  console.log(`⚠️ 404 Not Found: ${req.method} ${req.originalUrl}`);
+  res.status(404).json({ 
+    error: "Endpoint not found",
+    path: req.originalUrl,
+    method: req.method,
+    hint: "Check if the route exists and the HTTP method is correct"
+  });
 });
 
 // ================= SERVER =================
