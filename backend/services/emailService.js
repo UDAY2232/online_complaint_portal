@@ -327,7 +327,11 @@ const sendVerificationEmail = async (email, token) => {
   }
 
   try {
-    const verificationUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/verify-email?token=${token}`;
+    const frontendBaseUrl = process.env.FRONTEND_BASE_URL || process.env.FRONTEND_URL;
+    if (!frontendBaseUrl) {
+      throw new Error('FRONTEND_BASE_URL environment variable is missing. Please set it in your .env file for verification links to work.');
+    }
+    const verificationUrl = `${frontendBaseUrl}/verify-email?token=${token}`;
 
     const mailOptions = {
       from: `"Complaint Portal" <${process.env.EMAIL_USER}>`,
@@ -405,7 +409,7 @@ const sendPasswordResetEmail = async (email, name, resetUrl) => {
           <p>We received a request to reset your password. Click the button below to create a new password:</p>
           
           <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetUrl}" 
+            <a href="${resetUrl}"
                style="background-color: #f59e0b; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">
               Reset Password
             </a>
@@ -414,6 +418,8 @@ const sendPasswordResetEmail = async (email, name, resetUrl) => {
           <p style="color: #6b7280; font-size: 14px;">
             Or copy and paste this link in your browser:<br>
             <a href="${resetUrl}">${resetUrl}</a>
+            <br><br>
+            <strong>Note:</strong> If you are on mobile or tablet, make sure the link starts with your actual site URL (not localhost). If you see 'site can’t be reached', please request a new password reset from the correct device or contact support.
           </p>
           
           <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0;">

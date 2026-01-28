@@ -86,8 +86,11 @@ const initPasswordResetRoutes = (db) => {
       console.log('📧 Reset token stored in database');
 
       // Build reset URL using environment variable
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-      const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
+      const frontendBaseUrl = process.env.FRONTEND_BASE_URL || process.env.FRONTEND_URL;
+      if (!frontendBaseUrl) {
+        throw new Error('FRONTEND_BASE_URL environment variable is missing. Please set it in your .env file for password reset links to work.');
+      }
+      const resetUrl = `${frontendBaseUrl}/reset-password/${resetToken}`;
       console.log('📧 Reset URL:', resetUrl);
       
       // Send reset email to the user's actual email
