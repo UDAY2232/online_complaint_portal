@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,9 +16,9 @@ import { ArrowLeft, Loader2, CheckCircle, XCircle, Eye, EyeOff } from "lucide-re
 
 const ResetPassword = () => {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const { token } = useParams();
   const { toast } = useToast();
-  const token = searchParams.get("token");
+  // token is now from useParams
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");

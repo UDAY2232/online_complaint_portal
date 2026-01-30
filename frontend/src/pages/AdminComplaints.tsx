@@ -166,14 +166,15 @@ const AdminComplaints = () => {
         formData.append("image", resolvedImage);
       }
 
-      await api.resolveComplaint(selectedComplaint.id, formData);
-
+      const response = await api.resolveComplaint(selectedComplaint.id, formData);
       toast({
         title: "Complaint Resolved",
         description: "The complaint has been marked as resolved successfully.",
       });
-
       await fetchComplaints();
+      if (response.data && response.data.complaint) {
+        setSelectedComplaint(response.data.complaint);
+      }
       handleCloseDialog();
     } catch (error: any) {
       console.error("Error resolving complaint:", error);
