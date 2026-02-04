@@ -93,6 +93,14 @@ const runMigrations = async (db) => {
               WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'escalation_history' AND COLUMN_NAME = 'reason'`,
       sql: 'ALTER TABLE escalation_history ADD COLUMN reason TEXT',
     },
+
+    // Add status column to users table for active/inactive/suspended states
+    {
+      name: 'Add status to users',
+      check: `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'status'`,
+      sql: "ALTER TABLE users ADD COLUMN status ENUM('active', 'inactive', 'suspended') DEFAULT 'active'",
+    },
   ];
 
   for (const migration of migrations) {

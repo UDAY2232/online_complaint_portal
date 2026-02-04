@@ -9,6 +9,7 @@ CREATE TABLE users (
     password_hash VARCHAR(255) NOT NULL,
     name VARCHAR(255),
     role ENUM('user', 'admin', 'superadmin') NOT NULL DEFAULT 'user',
+    status ENUM('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,
     -- Password reset fields (stored in DB, not memory)
     reset_token_hash VARCHAR(255) NULL,
@@ -17,6 +18,7 @@ CREATE TABLE users (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_email (email),
     INDEX idx_role (role),
+    INDEX idx_status (status),
     INDEX idx_reset_token (reset_token_hash)
 );
 

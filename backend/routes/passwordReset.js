@@ -90,8 +90,16 @@ const initPasswordResetRoutes = (db) => {
       if (!frontendBaseUrl) {
         throw new Error('FRONTEND_BASE_URL environment variable is missing. Please set it in your .env file for password reset links to work.');
       }
+      
+      // Warn if localhost is being used in production
+      if (process.env.NODE_ENV === 'production' && frontendBaseUrl.includes('localhost')) {
+        console.warn('⚠️ WARNING: FRONTEND_BASE_URL contains localhost in production. This will cause reset links to fail on external devices.');
+        console.warn('⚠️ Please set FRONTEND_BASE_URL to your production frontend URL (e.g., https://online-complaint-portal.vercel.app)');
+      }
+      
       const resetUrl = `${frontendBaseUrl}/reset-password/${resetToken}`;
       console.log('📧 Reset URL:', resetUrl);
+      console.log('📧 Frontend Base URL:', frontendBaseUrl);
       
       // Send reset email to the user's actual email
       console.log('📧 Sending email to:', user.email);

@@ -10,7 +10,7 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-super-secret-jwt-key-change-i
 
 /**
  * Generate JWT Access Token
- * @param {object} payload - { id, email, role }
+ * @param {object} payload - { id, email, role, name (optional) }
  * @returns {string} - JWT token
  */
 const generateAccessToken = (payload) => {
@@ -19,6 +19,7 @@ const generateAccessToken = (payload) => {
       id: payload.id,
       email: payload.email,
       role: payload.role,
+      name: payload.name || null,  // Include name in token for display
       type: 'access',
     },
     JWT_SECRET,

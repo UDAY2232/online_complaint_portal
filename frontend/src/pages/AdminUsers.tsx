@@ -36,13 +36,13 @@ const AdminUsers = () => {
     const load = async () => {
       try {
         const res = await api.getUserRoles();
-        // res.data expected to be [{id, email, role, created_at}, ...]
+        // res.data expected to be [{id, email, name, role, status, created_at}, ...]
         const mapped = res.data.map((u: any) => ({
           id: u.id,
-          name: (u.email || "").split('@')[0],
+          name: u.name || (u.email || "").split('@')[0],
           email: u.email,
           role: u.role || 'user',
-          status: 'active',
+          status: u.status || 'active',  // Use actual status from DB
           joinedDate: u.created_at || new Date().toISOString(),
         }));
         setUsers(mapped);
@@ -75,9 +75,16 @@ const AdminUsers = () => {
   };
 
   const getStatusBadgeColor = (status: string) => {
-    return status === "active"
-      ? "bg-success text-success-foreground"
-      : "bg-muted text-muted-foreground";
+    switch (status) {
+      case "active":
+        return "bg-success text-success-foreground";
+      case "inactive":
+        return "bg-muted text-muted-foreground";
+      case "suspended":
+        return "bg-destructive text-destructive-foreground";
+      default:
+        return "bg-muted text-muted-foreground";
+    }
   };
 
   const handleManageUser = (user: User) => {
@@ -94,13 +101,19 @@ const AdminUsers = () => {
 
     // update backend if id exists
     if ((selectedUser as any).id) {
-      api.updateUser((selectedUser as any).id, { role: selectedUser.role })
-        .then(() => {
-          toast({ title: 'User updated', description: 'User role updated.' });
+      // Send both role and status to the general update endpoint
+      api.updateUser((selectedUser as any).id, { 
+        role: selectedUser.role,
+        status: selectedUser.status 
+      })
+        .then((response) => {
+          console.log('User updated:', response.data);
+          toast({ title: 'User updated', description: 'User has been updated successfully.' });
         })
         .catch((err) => {
           console.error('Failed to update user on backend', err);
-          toast({ title: 'Error', description: 'Failed to update user on backend', variant: 'destructive' });
+          const errorMsg = err.response?.data?.error || 'Failed to update user on backend';
+          toast({ title: 'Error', description: errorMsg, variant: 'destructive' });
         });
     } else {
       // fallback to localStorage
@@ -114,16 +127,24 @@ const AdminUsers = () => {
   const handleCreateUser = async () => {
     if (!newEmail) return toast({ title: 'Email required', description: 'Please enter an email', variant: 'destructive' });
     try {
-      const res = await api.createUser({ email: newEmail, role: newRole });
+      const res = await api.createUser({ email: newEmail, role: newRole, status: 'active' });
       const created = res.data;
-      setUsers(prev => [{ id: created.id, name: (created.email||'').split('@')[0], email: created.email, role: created.role, status: 'active', joinedDate: new Date().toISOString() }, ...prev]);
+      setUsers(prev => [{ 
+        id: created.id, 
+        name: created.name || (created.email||'').split('@')[0], 
+        email: created.email, 
+        role: created.role, 
+        status: created.status || 'active', 
+        joinedDate: new Date().toISOString() 
+      }, ...prev]);
       setIsAddOpen(false);
       setNewEmail('');
       setNewRole('user');
-      toast({ title: 'User created', description: 'New user added.' });
-    } catch (err) {
+      toast({ title: 'User created', description: 'New user added successfully.' });
+    } catch (err: any) {
       console.error('Failed to create user', err);
-      toast({ title: 'Error', description: 'Failed to create user on backend', variant: 'destructive' });
+      const errorMsg = err.response?.data?.error || 'Failed to create user on backend';
+      toast({ title: 'Error', description: errorMsg, variant: 'destructive' });
     }
   };
 
@@ -245,6 +266,7 @@ const AdminUsers = () => {
                   <SelectContent>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="suspended">Suspended</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

@@ -199,11 +199,24 @@ export const api = {
   getUserRoles: () =>
     axiosInstance.get("/admin/users"),
 
-  createUser: (user: { email: string; role?: string }) =>
+  createUser: (user: { email: string; password?: string; name?: string; role?: string; status?: string }) =>
     axiosInstance.post("/admin/users", user),
 
-  updateUser: (id: number, patch: { role?: string }) =>
-    axiosInstance.put(`/admin/users/${id}/role`, patch),
+  // General user update (handles role, status, name)
+  updateUser: (id: number, patch: { role?: string; status?: string; name?: string }) =>
+    axiosInstance.put(`/admin/users/${id}`, patch),
+
+  // Legacy role-only update (superadmin)
+  updateUserRole: (id: number, role: string) =>
+    axiosInstance.put(`/admin/users/${id}/role`, { role }),
+
+  // Profile update (save display name to DB)
+  updateProfile: (data: { name?: string; displayName?: string }) =>
+    axiosInstance.put("/auth/profile", data),
+
+  // Get current user
+  getCurrentUser: () =>
+    axiosInstance.get("/auth/me"),
 
   // ================= ANONYMOUS TRACK =================
   getTrack: (trackingId: string) =>

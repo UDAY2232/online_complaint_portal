@@ -59,6 +59,11 @@ app.use(cors({
       return callback(null, true);
     }
     
+    // Allow any localhost port for development
+    if (origin.startsWith('http://localhost:')) {
+      return callback(null, true);
+    }
+    
     console.log('⚠️ CORS blocked origin:', origin);
     return callback(null, false);
   },
@@ -710,6 +715,9 @@ app.put(
 
       console.log("✅ Complaint resolved successfully (PUT)");
       console.log("📧 Complaint email:", updated[0]?.email || "NO EMAIL");
+      console.log("📧 Problem Image URL:", updated[0]?.problem_image_url || "NONE");
+      console.log("📧 Resolved Image URL:", updated[0]?.resolved_image_url || "NONE");
+      console.log("📧 Resolution Message:", updated[0]?.resolution_message || "NONE");
 
       // Send email notification - await for logging but don't block response
       const emailResult = await sendResolutionEmail(updated[0]);
@@ -786,6 +794,9 @@ app.post(
 
       console.log("✅ Complaint resolved successfully (POST)");
       console.log("📧 Complaint email:", updated[0]?.email || "NO EMAIL");
+      console.log("📧 Problem Image URL:", updated[0]?.problem_image_url || "NONE");
+      console.log("📧 Resolved Image URL:", updated[0]?.resolved_image_url || "NONE");
+      console.log("📧 Resolution Message:", updated[0]?.resolution_message || "NONE");
 
       // Send email notification - await for logging but don't block response
       const emailResult = await sendResolutionEmail(updated[0]);

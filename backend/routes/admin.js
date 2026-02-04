@@ -48,9 +48,14 @@ const initAdminRoutes = (db) => {
   router.get('/users', async (req, res) => {
     try {
       const [users] = await db.promise().query(
-        'SELECT id, email, name, role, email_verified, created_at FROM users ORDER BY created_at DESC'
+        'SELECT id, email, name, role, status, email_verified, created_at FROM users ORDER BY created_at DESC'
       );
-      res.json(users);
+      // Ensure status has a default value for users without one
+      const usersWithStatus = users.map(u => ({
+        ...u,
+        status: u.status || 'active'
+      }));
+      res.json(usersWithStatus);
     } catch (err) {
       console.error('Get users error:', err);
       res.status(500).json({ error: 'Failed to fetch users' });
@@ -60,11 +65,31 @@ const initAdminRoutes = (db) => {
   // ================= CREATE USER (Admin) =================
   router.post('/users', async (req, res) => {
     try {
-      const { email, role = 'user' } = req.body;
+      const { email, password, name, role = 'user', status = 'active' } = req.body;
       const bcrypt = require('bcryptjs');
+
+      console.log('📝 Create user request:', { email, name, role, status, hasPassword: !!password });
 
       if (!email) {
         return res.status(400).json({ error: 'Email is required' });
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({ error: 'Invalid email format' });
+      }
+
+      // Validate role
+      const validRoles = ['user', 'admin', 'superadmin'];
+      if (!validRoles.includes(role)) {
+        return res.status(400).json({ error: 'Invalid role. Must be: user, admin, or superadmin' });
+      }
+
+      // Validate status
+      const validStatuses = ['active', 'inactive', 'suspended'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({ error: 'Invalid status. Must be: active, inactive, or suspended' });
       }
 
       // Check if user already exists
@@ -77,28 +102,103 @@ const initAdminRoutes = (db) => {
         return res.status(409).json({ error: 'User with this email already exists' });
       }
 
-      // Generate a random password (user will need to reset)
-      const tempPassword = Math.random().toString(36).slice(-8);
-      const passwordHash = await bcrypt.hash(tempPassword, 10);
+      // Use provided password or generate a random one
+      const finalPassword = password || Math.random().toString(36).slice(-8) + 'A1!';
+      const passwordHash = await bcrypt.hash(finalPassword, 10);
 
       const [result] = await db.promise().query(
-        'INSERT INTO users (email, password_hash, role, created_at) VALUES (LOWER(?), ?, ?, NOW())',
-        [email, passwordHash, role]
+        'INSERT INTO users (email, password_hash, name, role, status, email_verified, created_at) VALUES (LOWER(?), ?, ?, ?, ?, FALSE, NOW())',
+        [email, passwordHash, name || null, role, status]
       );
+
+      console.log('📝 User created successfully:', result.insertId);
 
       res.status(201).json({
         id: result.insertId,
         email: email.toLowerCase(),
+        name: name || null,
         role,
+        status,
         message: 'User created successfully'
       });
     } catch (err) {
       console.error('Create user error:', err);
-      res.status(500).json({ error: 'Failed to create user' });
+      res.status(500).json({ error: 'Failed to create user: ' + err.message });
     }
   });
 
-  // ================= UPDATE USER ROLE (Superadmin only) =================
+  // ================= UPDATE USER (General - handles role, status, name) =================
+  router.put('/users/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { role, status, name, display_name } = req.body;
+
+      console.log('📝 Update user request:', { id, role, status, name, display_name });
+
+      // Build dynamic update query
+      const updates = [];
+      const values = [];
+
+      if (role !== undefined) {
+        const validRoles = ['user', 'admin', 'superadmin'];
+        if (!validRoles.includes(role)) {
+          return res.status(400).json({ error: 'Invalid role. Must be: user, admin, or superadmin' });
+        }
+        updates.push('role = ?');
+        values.push(role);
+      }
+
+      if (status !== undefined) {
+        const validStatuses = ['active', 'inactive', 'suspended'];
+        if (!validStatuses.includes(status)) {
+          return res.status(400).json({ error: 'Invalid status. Must be: active, inactive, or suspended' });
+        }
+        updates.push('status = ?');
+        values.push(status);
+      }
+
+      if (name !== undefined) {
+        updates.push('name = ?');
+        values.push(name);
+      }
+
+      if (display_name !== undefined) {
+        updates.push('name = ?');
+        values.push(display_name);
+      }
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: 'No valid fields to update. Provide role, status, or name.' });
+      }
+
+      values.push(id);
+
+      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+      console.log('📝 Update query:', query, values);
+
+      const [result] = await db.promise().query(query, values);
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Fetch updated user
+      const [updatedUser] = await db.promise().query(
+        'SELECT id, email, name, role, status, email_verified, created_at FROM users WHERE id = ?',
+        [id]
+      );
+
+      res.json({ 
+        message: 'User updated successfully',
+        user: updatedUser[0]
+      });
+    } catch (err) {
+      console.error('Update user error:', err);
+      res.status(500).json({ error: 'Failed to update user: ' + err.message });
+    }
+  });
+
+  // ================= UPDATE USER ROLE (Superadmin only - legacy endpoint) =================
   router.put('/users/:id/role', requireSuperadmin, async (req, res) => {
     try {
       const { id } = req.params;
@@ -109,10 +209,14 @@ const initAdminRoutes = (db) => {
         return res.status(400).json({ error: 'Invalid role' });
       }
 
-      await db.promise().query(
+      const [result] = await db.promise().query(
         'UPDATE users SET role = ? WHERE id = ?',
         [role, id]
       );
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
 
       res.json({ message: 'User role updated successfully' });
     } catch (err) {

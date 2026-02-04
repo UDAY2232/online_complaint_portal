@@ -123,18 +123,34 @@ const AdminSettings = () => {
     setIsSaving(true);
     
     try {
+      // Save display name to database (not just localStorage)
+      const response = await api.updateProfile({ displayName: name });
+      
+      // Update localStorage with the new name
+      if (response.data?.user?.name) {
+        localStorage.setItem("userName", response.data.user.name);
+      }
+      
+      // If new token is returned, update it
+      if (response.data?.accessToken) {
+        localStorage.setItem("accessToken", response.data.accessToken);
+      }
+      
+      toast({
+        title: "Profile updated",
+        description: "Your admin profile has been saved to the database.",
+      });
+    } catch (error: any) {
+      console.error("Profile update error:", error);
+      
+      // Fallback to localStorage only if API fails
       if (name) {
         localStorage.setItem("userName", name);
       }
       
       toast({
-        title: "Profile updated",
-        description: "Your admin profile has been updated successfully.",
-      });
-    } catch (error) {
-      toast({
-        title: "Error",
-        description: "Failed to update profile.",
+        title: "Warning",
+        description: error.response?.data?.error || "Profile saved locally. Server sync may have failed.",
         variant: "destructive",
       });
     } finally {

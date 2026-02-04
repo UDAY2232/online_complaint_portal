@@ -179,6 +179,7 @@ const initAuthRoutes = (db) => {
         id: user.id,
         email: user.email,
         role: user.role,
+        name: user.name,  // Include name in token
       });
 
       const refreshToken = generateRefreshToken({
@@ -191,6 +192,7 @@ const initAuthRoutes = (db) => {
 
       console.log('🔐 ✅ LOGIN SUCCESS for:', user.email);
       console.log('🔐 ✅ User role:', user.role);
+      console.log('🔐 ✅ User name:', user.name || 'Not set');
       console.log('========== LOGIN DEBUG END ==========\n');
 
       res.json({
@@ -200,9 +202,11 @@ const initAuthRoutes = (db) => {
         user: {
           id: user.id,
           email: user.email,
-          name: user.name,
+          name: user.name || '',
+          displayName: user.name || '',  // Add displayName for frontend
           role: user.role,
           emailVerified,
+          status: user.status || 'active',
         },
       });
 
@@ -352,7 +356,7 @@ const initAuthRoutes = (db) => {
   router.get('/me', authenticate, async (req, res) => {
     try {
       const [users] = await db.promise().query(
-        'SELECT id, email, name, role, email_verified, created_at FROM users WHERE id = ?',
+        'SELECT id, email, name, role, status, email_verified, created_at FROM users WHERE id = ?',
         [req.user.id]
       );
 
@@ -360,11 +364,74 @@ const initAuthRoutes = (db) => {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      res.json({ user: users[0] });
+      const user = users[0];
+      res.json({ 
+        user: {
+          ...user,
+          displayName: user.name || '',
+        }
+      });
 
     } catch (err) {
       console.error('Get user error:', err);
       res.status(500).json({ error: 'Failed to get user info' });
+    }
+  });
+
+  // ================= UPDATE PROFILE (Save display name to DB) =================
+  router.put('/profile', authenticate, async (req, res) => {
+    try {
+      const { name, displayName } = req.body;
+      const userId = req.user.id;
+      
+      // Use displayName or name
+      const newName = displayName || name;
+
+      console.log('👤 Profile update for user:', userId, 'New name:', newName);
+
+      if (newName !== undefined) {
+        await db.promise().query(
+          'UPDATE users SET name = ? WHERE id = ?',
+          [newName, userId]
+        );
+      }
+
+      // Fetch updated user
+      const [users] = await db.promise().query(
+        'SELECT id, email, name, role, status, email_verified FROM users WHERE id = ?',
+        [userId]
+      );
+
+      if (users.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      const user = users[0];
+      
+      // Generate new token with updated name
+      const newAccessToken = generateAccessToken({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        name: user.name,
+      });
+
+      res.json({ 
+        message: 'Profile updated successfully',
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name || '',
+          displayName: user.name || '',
+          role: user.role,
+          status: user.status || 'active',
+        },
+        accessToken: newAccessToken,  // Return new token with updated info
+      });
+
+    } catch (err) {
+      console.error('Update profile error:', err);
+      res.status(500).json({ error: 'Failed to update profile' });
     }
   });
 

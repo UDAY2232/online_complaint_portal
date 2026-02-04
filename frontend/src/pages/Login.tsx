@@ -50,13 +50,15 @@ const Login = () => {
       sessionStorage.clear();
 
       console.log("🔐 Login successful for:", user.email, "Role:", user.role);
+      console.log("🔐 Display name from DB:", user.displayName || user.name || "Not set");
 
       // Store ONLY current user's authentication data
       localStorage.setItem("isAuthenticated", "true");
       localStorage.setItem("accessToken", accessToken);
       localStorage.setItem("refreshToken", refreshToken);
       localStorage.setItem("userEmail", user.email);
-      localStorage.setItem("userName", user.name || "");
+      // Use displayName from DB (persisted), fallback to name or empty
+      localStorage.setItem("userName", user.displayName || user.name || "");
       localStorage.setItem("userRole", user.role);
       localStorage.setItem("userId", user.id.toString());
 
