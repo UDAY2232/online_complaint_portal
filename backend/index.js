@@ -183,6 +183,9 @@ const sendResolutionEmail = async (complaint) => {
   console.log("\n========== EMAIL NOTIFICATION START ==========");
   console.log("📧 Complaint ID:", complaint?.id);
   console.log("📧 User Email:", complaint?.email || "NO EMAIL");
+  console.log("📧 Problem Image URL:", complaint?.problem_image_url || "NONE");
+  console.log("📧 Resolved Image URL:", complaint?.resolved_image_url || "NONE");
+  console.log("📧 Resolution Message:", complaint?.resolution_message || "NONE");
   console.log("📧 Email Enabled:", emailEnabled);
   console.log("📧 Transporter Exists:", !!transporter);
   console.log("📧 EMAIL_USER Set:", !!EMAIL_USER);
