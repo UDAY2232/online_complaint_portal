@@ -373,16 +373,16 @@ const sendVerificationEmail = async (email, token) => {
 
 /**
  * Send Password Reset Email
- * @param {string} email - User email
+ * @param {string} email - User email (from database)
  * @param {string} name - User name
- * @param {string} resetUrl - Password reset URL
+ * @param {string} resetUrl - Password reset URL with token
+ * @param {number} expiryMinutes - Token expiry in minutes (default 15)
  */
-const sendPasswordResetEmail = async (email, name, resetUrl) => {
+const sendPasswordResetEmail = async (email, name, resetUrl, expiryMinutes = 15) => {
   console.log('📧 [PASSWORD RESET] Starting email send...');
+  console.log('📧 [PASSWORD RESET] Recipient:', email);
   console.log('📧 [PASSWORD RESET] emailEnabled:', emailEnabled);
   console.log('📧 [PASSWORD RESET] transporter exists:', !!transporter);
-  console.log('📧 [PASSWORD RESET] EMAIL_USER:', process.env.EMAIL_USER ? 'Set' : 'NOT SET');
-  console.log('📧 [PASSWORD RESET] EMAIL_PASS:', process.env.EMAIL_PASS ? 'Set' : 'NOT SET');
   
   // If transporter doesn't exist but credentials do, try to create it
   if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
@@ -392,6 +392,12 @@ const sendPasswordResetEmail = async (email, name, resetUrl) => {
   
   if (!transporter) {
     console.log('📧 ❌ [PASSWORD RESET] Transporter still null after init attempt');
+    return false;
+  }
+
+  // Validate email parameter
+  if (!email || typeof email !== 'string' || !email.includes('@')) {
+    console.log('📧 ❌ [PASSWORD RESET] Invalid email address:', email);
     return false;
   }
 
@@ -424,7 +430,8 @@ const sendPasswordResetEmail = async (email, name, resetUrl) => {
           
           <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0;">
             <p style="color: #92400e; margin: 0; font-size: 14px;">
-              ⚠️ This link will expire in <strong>1 hour</strong>.<br>
+              ⚠️ This link will expire in <strong>${expiryMinutes} minutes</strong>.<br>
+              This link can only be used once.<br>
               If you didn't request this reset, you can safely ignore this email.
             </p>
           </div>
@@ -439,10 +446,11 @@ const sendPasswordResetEmail = async (email, name, resetUrl) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log(`📧 ✅ Password reset email sent to: ${email}`);
+    console.log('📧 ✅ Password reset email sent to:', email);
+    console.log('📧 Message ID:', info.messageId);
     return true;
   } catch (err) {
-    console.error(`📧 ❌ Failed to send password reset email to ${email}:`, err.message);
+    console.error('📧 ❌ Failed to send password reset email:', err.message);
     return false;
   }
 };

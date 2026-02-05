@@ -91,6 +91,21 @@ CREATE TABLE refresh_tokens (
     INDEX idx_token (token)
 );
 
+-- ================= PASSWORD RESETS =================
+-- Dedicated table for secure password reset tokens
+CREATE TABLE password_resets (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    token_hash VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    used BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_token_hash (token_hash),
+    INDEX idx_user_id (user_id),
+    INDEX idx_expires (expires_at)
+);
+
 -- ================= SEED DATA =================
 
 -- Default admin (password: 'Admin@123' - CHANGE IMMEDIATELY!)

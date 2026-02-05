@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -16,9 +16,9 @@ import { ArrowLeft, Loader2, CheckCircle, XCircle, Eye, EyeOff } from "lucide-re
 
 const ResetPassword = () => {
   const navigate = useNavigate();
-  const { token } = useParams();
+  const [searchParams] = useSearchParams();
+  const token = searchParams.get('token');
   const { toast } = useToast();
-  // token is now from useParams
 
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -35,11 +35,17 @@ const ResetPassword = () => {
   const hasNumber = /\d/.test(password);
   const passwordsMatch = password === confirmPassword && password.length > 0;
   const isPasswordValid = hasMinLength && hasUppercase && hasLowercase && hasNumber && passwordsMatch;
+  
+  // State for error message display
+  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [errorCode, setErrorCode] = useState<string>("");
 
   useEffect(() => {
     const verifyToken = async () => {
       if (!token) {
         setIsVerifying(false);
+        setErrorMessage("No reset token provided. Please request a new password reset link.");
+        setErrorCode("MISSING_TOKEN");
         return;
       }
 
@@ -47,9 +53,28 @@ const ResetPassword = () => {
         const response = await api.verifyResetToken(token);
         console.log("🔑 Token verification response:", response.data);
         setIsValidToken(response.data.valid);
+        setErrorMessage("");
+        setErrorCode("");
       } catch (error: any) {
         console.error("🔑 Token verification error:", error.response?.data || error.message);
         setIsValidToken(false);
+        const code = error.response?.data?.code || "UNKNOWN_ERROR";
+        setErrorCode(code);
+        
+        // Set user-friendly error message based on error code
+        switch (code) {
+          case "TOKEN_EXPIRED":
+            setErrorMessage("This reset link has expired. Please request a new password reset.");
+            break;
+          case "TOKEN_USED":
+            setErrorMessage("This reset link has already been used. Please request a new password reset.");
+            break;
+          case "INVALID_TOKEN":
+            setErrorMessage("This reset link is invalid. Please request a new password reset.");
+            break;
+          default:
+            setErrorMessage(error.response?.data?.error || "Unable to verify reset link. Please try again.");
+        }
       } finally {
         setIsVerifying(false);
       }
@@ -82,10 +107,28 @@ const ResetPassword = () => {
       });
     } catch (error: any) {
       console.error("🔑 Password reset error:", error.response?.data || error.message);
-      const errorMessage = error.response?.data?.error || error.message || "Failed to reset password";
+      const code = error.response?.data?.code || "UNKNOWN_ERROR";
+      let errorMsg = error.response?.data?.error || "Failed to reset password";
+      
+      // Handle specific error codes
+      switch (code) {
+        case "TOKEN_EXPIRED":
+          errorMsg = "This reset link has expired. Please request a new password reset.";
+          break;
+        case "TOKEN_USED":
+          errorMsg = "This reset link has already been used. Please request a new password reset.";
+          break;
+        case "INVALID_TOKEN":
+          errorMsg = "This reset link is invalid. Please request a new password reset.";
+          break;
+        case "WEAK_PASSWORD":
+          errorMsg = "Password is too weak. Please use at least 8 characters with uppercase, lowercase, and a number.";
+          break;
+      }
+      
       toast({
         title: "Error",
-        description: errorMessage,
+        description: errorMsg,
         variant: "destructive",
       });
     } finally {
@@ -114,9 +157,13 @@ const ResetPassword = () => {
             <div className="mx-auto mb-4 w-16 h-16 bg-red-100 rounded-full flex items-center justify-center">
               <XCircle className="w-8 h-8 text-red-600" />
             </div>
-            <CardTitle className="text-2xl font-bold">Invalid or Expired Link</CardTitle>
-            <CardDescription>
-              This password reset link is invalid or has expired.
+            <CardTitle className="text-2xl font-bold">
+              {errorCode === "TOKEN_EXPIRED" ? "Link Expired" : 
+               errorCode === "TOKEN_USED" ? "Link Already Used" : 
+               "Invalid Reset Link"}
+            </CardTitle>
+            <CardDescription className="text-base">
+              {errorMessage || "This password reset link is invalid or has expired."}
             </CardDescription>
           </CardHeader>
           <CardContent>
