@@ -11,7 +11,7 @@ const cloudinary = require("./utils/cloudinary");
 // ================= PHASE 6 & 7 IMPORTS =================
 const { runMigrations } = require("./utils/migrations");
 const { startEscalationScheduler } = require("./services/scheduler");
-const { initializeTransporter, sendResolutionEmail: sendResolutionEmailService, sendComplaintSubmissionEmail } = require("./services/emailService");
+const { initializeTransporter, sendResolutionEmail: sendResolutionEmailService, sendComplaintSubmissionEmail, sendStatusChangeEmail } = require("./services/emailService");
 const { authenticate, optionalAuth, requireAdmin, requireUser } = require("./middleware/auth");
 const initAuthRoutes = require("./routes/auth");
 const initAdminRoutes = require("./routes/admin");
@@ -653,12 +653,35 @@ app.put("/api/complaints/:id", async (req, res) => {
       return res.status(400).json({ error: "Invalid status" });
     }
 
+    // Get current complaint data for email
+    const [currentComplaint] = await db.promise().query(
+      "SELECT * FROM complaints WHERE id = ?",
+      [id]
+    );
+
+    if (currentComplaint.length === 0) {
+      return res.status(404).json({ error: "Complaint not found" });
+    }
+
     await db.promise().query(
       "UPDATE complaints SET status = ? WHERE id = ?",
       [status, id]
     );
 
-    res.json({ message: "Status updated successfully", id, status });
+    // Fetch updated complaint
+    const [updated] = await db.promise().query(
+      "SELECT * FROM complaints WHERE id = ?",
+      [id]
+    );
+
+    // Send status change email for under-review status
+    if (status === 'under-review' && updated[0]?.email) {
+      sendStatusChangeEmail(updated[0], status).catch(err => {
+        console.error('📧 Failed to send status change email:', err.message);
+      });
+    }
+
+    res.json({ message: "Status updated successfully", id, status, complaint: updated[0] });
   } catch (err) {
     console.error("❌ Update status error:", err);
     res.status(500).json({ error: "Failed to update status" });

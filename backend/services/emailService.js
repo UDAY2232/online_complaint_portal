@@ -447,6 +447,81 @@ const sendPasswordResetEmail = async (email, name, resetUrl) => {
   }
 };
 
+/**
+ * Send Status Change Email to User
+ * Called when complaint status changes to 'under-review'
+ * @param {object} complaint - Complaint object with email
+ * @param {string} newStatus - New status value
+ */
+const sendStatusChangeEmail = async (complaint, newStatus) => {
+  if (!emailEnabled || !transporter) {
+    console.log('📧 ⚠️ Email disabled - skipping status change notification');
+    return false;
+  }
+
+  if (!complaint?.email) {
+    console.log('📧 ⚠️ No email address - skipping status change notification');
+    return false;
+  }
+
+  // Only send for under-review status (resolved has its own email)
+  if (newStatus !== 'under-review') {
+    console.log('📧 ℹ️ Status change email only for under-review, skipping:', newStatus);
+    return false;
+  }
+
+  try {
+    const statusColor = '#f59e0b'; // amber/warning color for under-review
+    const statusText = 'Under Review';
+
+    const mailOptions = {
+      from: `"Complaint Portal" <${process.env.EMAIL_USER}>`,
+      to: complaint.email,
+      subject: `🔍 Complaint #${complaint.id} Status Update - Now ${statusText}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid ${statusColor};">
+            <h2 style="color: #92400e; margin: 0;">🔍 Your Complaint is Being Reviewed</h2>
+          </div>
+          
+          <p>Dear ${complaint.name || 'User'},</p>
+          
+          <p>Good news! Your complaint has been picked up by our team and is now being reviewed.</p>
+          
+          <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p><strong>Complaint ID:</strong> #${complaint.id}</p>
+            <p><strong>Category:</strong> ${complaint.category}</p>
+            <p><strong>Priority:</strong> <span style="text-transform: uppercase;">${complaint.priority}</span></p>
+            <p><strong>Status:</strong> <span style="color: ${statusColor}; font-weight: bold;">${statusText.toUpperCase()}</span></p>
+          </div>
+          
+          <div style="margin: 20px 0;">
+            <h3>Description:</h3>
+            <p style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid ${statusColor};">
+              ${complaint.description}
+            </p>
+          </div>
+          
+          <p>Our team is working on resolving your complaint. You will receive another email once it's resolved.</p>
+          
+          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
+          
+          <p style="color: #6b7280; font-size: 14px;">
+            Thank you for your patience. If you have any additional information to provide, please submit a new complaint referencing this ID.
+          </p>
+        </div>
+      `,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`📧 ✅ Status change email sent to: ${complaint.email}`);
+    return true;
+  } catch (err) {
+    console.error(`📧 ❌ Failed to send status change email to ${complaint.email}:`, err.message);
+    return false;
+  }
+};
+
 module.exports = {
   initializeTransporter,
   isEmailEnabled,
@@ -457,4 +532,5 @@ module.exports = {
   sendResolutionEmail,
   sendVerificationEmail,
   sendPasswordResetEmail,
+  sendStatusChangeEmail,
 };

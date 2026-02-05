@@ -176,7 +176,11 @@ export const api = {
 
   // 🔥 CREATE COMPLAINT (WITH IMAGE)
   createComplaint: (formData: FormData) =>
-    axiosInstance.post("/complaints", formData),
+    axiosInstance.post("/complaints", formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }),
 
   updateComplaintStatus: (id: number, status: string, changed_by?: string) =>
     axiosInstance.put(`/complaints/${id}`, {
@@ -186,7 +190,11 @@ export const api = {
 
   // 🔥 RESOLVE COMPLAINT (ADMIN - WITH IMAGE)
   resolveComplaint: (id: number, formData: FormData) =>
-    axiosInstance.post(`/complaints/${id}/resolve`, formData),
+    axiosInstance.post(`/complaints/${id}/resolve`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }),
 
   // ================= ESCALATIONS =================
   getEscalations: () =>
@@ -202,8 +210,12 @@ export const api = {
   createUser: (user: { email: string; password?: string; name?: string; role?: string; status?: string }) =>
     axiosInstance.post("/admin/users", user),
 
-  // General user update (handles role, status, name)
+  // General user update using PATCH (preferred method for partial updates)
   updateUser: (id: number, patch: { role?: string; status?: string; name?: string }) =>
+    axiosInstance.patch(`/admin/users/${id}`, patch),
+
+  // Legacy PUT update (still supported)
+  updateUserPut: (id: number, patch: { role?: string; status?: string; name?: string }) =>
     axiosInstance.put(`/admin/users/${id}`, patch),
 
   // Legacy role-only update (superadmin)
@@ -214,8 +226,12 @@ export const api = {
   updateProfile: (data: { name?: string; displayName?: string }) =>
     axiosInstance.put("/auth/profile", data),
 
-  // Get current user
+  // Get current user profile from backend (fresh data)
   getCurrentUser: () =>
+    axiosInstance.get("/auth/me"),
+
+  // Fetch fresh user profile (to sync with DB)
+  fetchProfile: () =>
     axiosInstance.get("/auth/me"),
 
   // ================= ANONYMOUS TRACK =================

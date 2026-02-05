@@ -167,14 +167,41 @@ const AdminComplaints = () => {
       }
 
       const response = await api.resolveComplaint(selectedComplaint.id, formData);
+      
+      // Update the complaints list with the resolved data
+      if (response.data && response.data.complaint) {
+        const resolvedComplaint = response.data.complaint;
+        
+        // Update local complaints array
+        setComplaints(prevComplaints => 
+          prevComplaints.map(c => 
+            c.id === selectedComplaint.id 
+              ? { 
+                  ...c, 
+                  status: 'resolved',
+                  resolution_message: resolvedComplaint.resolution_message,
+                  resolved_image_url: resolvedComplaint.resolved_image_url,
+                  problem_image_url: resolvedComplaint.problem_image_url || c.problem_image_url,
+                }
+              : c
+          )
+        );
+        
+        console.log('📸 Resolved complaint data:', {
+          id: resolvedComplaint.id,
+          problem_image_url: resolvedComplaint.problem_image_url,
+          resolved_image_url: resolvedComplaint.resolved_image_url,
+          resolution_message: resolvedComplaint.resolution_message,
+        });
+      }
+      
       toast({
         title: "Complaint Resolved",
-        description: "The complaint has been marked as resolved successfully.",
+        description: response.data?.emailSent 
+          ? "Complaint resolved and notification email sent to user."
+          : "Complaint resolved successfully.",
       });
-      await fetchComplaints();
-      if (response.data && response.data.complaint) {
-        setSelectedComplaint(response.data.complaint);
-      }
+      
       handleCloseDialog();
     } catch (error: any) {
       console.error("Error resolving complaint:", error);

@@ -8,9 +8,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import Sidebar from "@/components/Sidebar";
 import Navbar from "@/components/Navbar";
-import { api } from "@/lib/api";
-import { Search, UserPlus } from "lucide-react";
+import { api, classifyError } from "@/lib/api";
+import { Search, UserPlus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { AxiosError } from "axios";
 
 interface User {
   name: string;
@@ -29,33 +30,43 @@ const AdminUsers = () => {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [newEmail, setNewEmail] = useState('');
+  const [newName, setNewName] = useState('');
+  const [newPassword, setNewPassword] = useState('');
   const [newRole, setNewRole] = useState('user');
+  const [isLoading, setIsLoading] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  const loadUsers = async () => {
+    setIsLoading(true);
+    try {
+      const res = await api.getUserRoles();
+      const mapped = res.data.map((u: any) => ({
+        id: u.id,
+        name: u.name || (u.email || "").split('@')[0],
+        email: u.email,
+        role: u.role || 'user',
+        status: u.status || 'active',
+        joinedDate: u.created_at || new Date().toISOString(),
+      }));
+      setUsers(mapped);
+    } catch (error: any) {
+      console.error('Failed to load users:', error);
+      const errorInfo = error instanceof AxiosError ? classifyError(error) : { message: error.message };
+      toast({ 
+        title: 'Error loading users', 
+        description: errorInfo.message || 'Failed to load users from server', 
+        variant: 'destructive' 
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // Load users from backend user_roles table
-    const load = async () => {
-      try {
-        const res = await api.getUserRoles();
-        // res.data expected to be [{id, email, name, role, status, created_at}, ...]
-        const mapped = res.data.map((u: any) => ({
-          id: u.id,
-          name: u.name || (u.email || "").split('@')[0],
-          email: u.email,
-          role: u.role || 'user',
-          status: u.status || 'active',  // Use actual status from DB
-          joinedDate: u.created_at || new Date().toISOString(),
-        }));
-        setUsers(mapped);
-      } catch (error) {
-        console.error('Failed to load users:', error);
-        // fallback to localStorage if backend unavailable
-        const storedUsers = JSON.parse(localStorage.getItem("users") || "[]");
-        setUsers(storedUsers);
-      }
-    };
-    load();
-    const onStorage = (e: StorageEvent) => { if (e.key === "users") load(); };
-    const onFocus = () => load();
+    loadUsers();
+    const onStorage = (e: StorageEvent) => { if (e.key === "users") loadUsers(); };
+    const onFocus = () => loadUsers();
     window.addEventListener("storage", onStorage);
     window.addEventListener("focus", onFocus);
     return () => {
@@ -92,59 +103,91 @@ const AdminUsers = () => {
     setIsDialogOpen(true);
   };
 
-  const handleUpdateUser = () => {
+  const handleUpdateUser = async () => {
     if (!selectedUser) return;
-    const updatedUsers = users.map(u =>
-      u.email === selectedUser.email ? selectedUser : u
-    );
-    setUsers(updatedUsers);
-
-    // update backend if id exists
-    if ((selectedUser as any).id) {
-      // Send both role and status to the general update endpoint
-      api.updateUser((selectedUser as any).id, { 
-        role: selectedUser.role,
-        status: selectedUser.status 
-      })
-        .then((response) => {
-          console.log('User updated:', response.data);
-          toast({ title: 'User updated', description: 'User has been updated successfully.' });
-        })
-        .catch((err) => {
-          console.error('Failed to update user on backend', err);
-          const errorMsg = err.response?.data?.error || 'Failed to update user on backend';
-          toast({ title: 'Error', description: errorMsg, variant: 'destructive' });
+    
+    setIsUpdating(true);
+    try {
+      // Use PATCH method for partial updates (id must exist)
+      if ((selectedUser as any).id) {
+        const response = await api.updateUser((selectedUser as any).id, { 
+          role: selectedUser.role,
+          status: selectedUser.status 
         });
-    } else {
-      // fallback to localStorage
-      localStorage.setItem("users", JSON.stringify(updatedUsers));
-      toast({ title: 'User updated', description: 'User updated locally.' });
+        console.log('User updated:', response.data);
+        
+        // Update local state with response data
+        if (response.data.user) {
+          setUsers(users.map(u =>
+            u.email === selectedUser.email ? { 
+              ...u, 
+              ...response.data.user,
+              name: response.data.user.name || u.name 
+            } : u
+          ));
+        } else {
+          // Fallback to local state update
+          setUsers(users.map(u =>
+            u.email === selectedUser.email ? selectedUser : u
+          ));
+        }
+        
+        toast({ title: 'User updated', description: 'User has been updated successfully.' });
+      } else {
+        toast({ title: 'Error', description: 'User ID not found', variant: 'destructive' });
+      }
+    } catch (err: any) {
+      console.error('Failed to update user on backend', err);
+      const errorInfo = err instanceof AxiosError ? classifyError(err) : { message: err.message };
+      const errorMsg = err.response?.data?.error || errorInfo.message || 'Failed to update user';
+      toast({ title: 'Error', description: errorMsg, variant: 'destructive' });
+    } finally {
+      setIsUpdating(false);
+      setIsDialogOpen(false);
     }
-
-    setIsDialogOpen(false);
   };
 
   const handleCreateUser = async () => {
-    if (!newEmail) return toast({ title: 'Email required', description: 'Please enter an email', variant: 'destructive' });
+    if (!newEmail) {
+      return toast({ title: 'Email required', description: 'Please enter an email', variant: 'destructive' });
+    }
+    
+    setIsCreating(true);
     try {
-      const res = await api.createUser({ email: newEmail, role: newRole, status: 'active' });
+      const res = await api.createUser({ 
+        email: newEmail, 
+        password: newPassword || undefined,
+        name: newName || undefined,
+        role: newRole, 
+        status: 'active' 
+      });
       const created = res.data;
+      
+      // Add new user to list
       setUsers(prev => [{ 
         id: created.id, 
-        name: created.name || (created.email||'').split('@')[0], 
+        name: created.name || newName || (created.email||'').split('@')[0], 
         email: created.email, 
         role: created.role, 
         status: created.status || 'active', 
         joinedDate: new Date().toISOString() 
       }, ...prev]);
+      
+      // Reset form
       setIsAddOpen(false);
       setNewEmail('');
+      setNewName('');
+      setNewPassword('');
       setNewRole('user');
-      toast({ title: 'User created', description: 'New user added successfully.' });
+      
+      toast({ title: 'User created', description: `New user ${created.email} added successfully.` });
     } catch (err: any) {
       console.error('Failed to create user', err);
-      const errorMsg = err.response?.data?.error || 'Failed to create user on backend';
+      const errorInfo = err instanceof AxiosError ? classifyError(err) : { message: err.message };
+      const errorMsg = err.response?.data?.error || errorInfo.message || 'Failed to create user';
       toast({ title: 'Error', description: errorMsg, variant: 'destructive' });
+    } finally {
+      setIsCreating(false);
     }
   };
 
@@ -270,8 +313,15 @@ const AdminUsers = () => {
                   </SelectContent>
                 </Select>
               </div>
-              <Button onClick={handleUpdateUser} className="w-full">
-                Save Changes
+              <Button onClick={handleUpdateUser} className="w-full" disabled={isUpdating}>
+                {isUpdating ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  "Save Changes"
+                )}
               </Button>
             </div>
           )}
@@ -282,12 +332,34 @@ const AdminUsers = () => {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add User</DialogTitle>
-            <DialogDescription>Create a new user with role</DialogDescription>
+            <DialogDescription>Create a new user account</DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label>Email</Label>
-              <Input value={newEmail} onChange={(e) => setNewEmail(e.target.value)} />
+              <Label>Email *</Label>
+              <Input 
+                value={newEmail} 
+                onChange={(e) => setNewEmail(e.target.value)} 
+                placeholder="user@example.com"
+                type="email"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Name</Label>
+              <Input 
+                value={newName} 
+                onChange={(e) => setNewName(e.target.value)} 
+                placeholder="Full Name (optional)"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Password</Label>
+              <Input 
+                value={newPassword} 
+                onChange={(e) => setNewPassword(e.target.value)} 
+                placeholder="Leave empty for random password"
+                type="password"
+              />
             </div>
             <div className="space-y-2">
               <Label>Role</Label>
@@ -302,7 +374,16 @@ const AdminUsers = () => {
               </Select>
             </div>
             <div className="flex gap-2">
-              <Button onClick={handleCreateUser}>Create</Button>
+              <Button onClick={handleCreateUser} disabled={isCreating}>
+                {isCreating ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  "Create"
+                )}
+              </Button>
               <Button variant="ghost" onClick={() => setIsAddOpen(false)}>Cancel</Button>
             </div>
           </div>

@@ -5,9 +5,11 @@
 
 const express = require('express');
 const router = express.Router();
+const bcrypt = require('bcryptjs');
 const { authenticate, requireAdmin, requireSuperadmin } = require('../middleware/auth');
 const { getEscalationStats } = require('../services/escalationService');
 const { triggerEscalationCheck } = require('../services/scheduler');
+const { sendStatusChangeEmail } = require('../services/emailService');
 
 /**
  * Initialize admin routes with database connection
@@ -194,6 +196,77 @@ const initAdminRoutes = (db) => {
       });
     } catch (err) {
       console.error('Update user error:', err);
+      res.status(500).json({ error: 'Failed to update user: ' + err.message });
+    }
+  });
+
+  // ================= PATCH USER (Partial Update - preferred method) =================
+  router.patch('/users/:id', async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { role, status, name, display_name } = req.body;
+
+      console.log('📝 PATCH user request:', { id, role, status, name, display_name });
+
+      // Build dynamic update query
+      const updates = [];
+      const values = [];
+
+      if (role !== undefined) {
+        const validRoles = ['user', 'admin', 'superadmin'];
+        if (!validRoles.includes(role)) {
+          return res.status(400).json({ error: 'Invalid role. Must be: user, admin, or superadmin' });
+        }
+        updates.push('role = ?');
+        values.push(role);
+      }
+
+      if (status !== undefined) {
+        const validStatuses = ['active', 'inactive', 'suspended'];
+        if (!validStatuses.includes(status)) {
+          return res.status(400).json({ error: 'Invalid status. Must be: active, inactive, or suspended' });
+        }
+        updates.push('status = ?');
+        values.push(status);
+      }
+
+      if (name !== undefined) {
+        updates.push('name = ?');
+        values.push(name);
+      }
+
+      if (display_name !== undefined) {
+        updates.push('name = ?');
+        values.push(display_name);
+      }
+
+      if (updates.length === 0) {
+        return res.status(400).json({ error: 'No valid fields to update. Provide role, status, or name.' });
+      }
+
+      values.push(id);
+
+      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+      console.log('📝 PATCH query:', query, values);
+
+      const [result] = await db.promise().query(query, values);
+
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Fetch updated user
+      const [updatedUser] = await db.promise().query(
+        'SELECT id, email, name, role, status, email_verified, created_at FROM users WHERE id = ?',
+        [id]
+      );
+
+      res.json({ 
+        message: 'User updated successfully',
+        user: updatedUser[0]
+      });
+    } catch (err) {
+      console.error('PATCH user error:', err);
       res.status(500).json({ error: 'Failed to update user: ' + err.message });
     }
   });
