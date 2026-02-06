@@ -424,8 +424,7 @@ const sendPasswordResetEmail = async (email, name, resetUrl, expiryMinutes = 15)
           <p style="color: #6b7280; font-size: 14px;">
             Or copy and paste this link in your browser:<br>
             <a href="${resetUrl}">${resetUrl}</a>
-            <br><br>
-            <strong>Note:</strong> If you are on mobile or tablet, make sure the link starts with your actual site URL (not localhost). If you see 'site can’t be reached', please request a new password reset from the correct device or contact support.
+
           </p>
           
           <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0;">

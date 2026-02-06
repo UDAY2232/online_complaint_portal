@@ -104,6 +104,23 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// API root endpoint
+app.get('/api', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok',
+    service: 'Online Complaint Portal API',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      auth: '/api/auth/*',
+      complaints: '/api/complaints',
+      user: '/api/user/*',
+      admin: '/api/admin/*'
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
 // Rate limiting
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/signup', authLimiter);
