@@ -18,7 +18,7 @@ console.log("🔗 Environment:", import.meta.env.MODE);
 
 const axiosInstance = axios.create({
   baseURL: API_BASE_URL,
-  timeout: 30000, // 30 second timeout for slow connections
+  timeout: 90000, // 90 second timeout for Render free tier cold start
   headers: {
     'Content-Type': 'application/json',
   },
@@ -38,8 +38,8 @@ export const classifyError = (error: AxiosError): { type: string; message: strin
     if (error.code === 'ECONNABORTED') {
       return {
         type: 'TIMEOUT',
-        message: 'Request timed out',
-        details: 'The server took too long to respond',
+        message: 'Server is waking up, please try again',
+        details: 'The backend server may be in sleep mode (Render free tier). Please wait and retry.',
       };
     }
     return {

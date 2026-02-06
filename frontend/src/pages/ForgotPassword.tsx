@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,6 +22,20 @@ const ForgotPassword = () => {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("Sending...");
+
+  // Update loading message after delay (for Render cold start)
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (isLoading) {
+      timer = setTimeout(() => {
+        setLoadingMessage("Server waking up, please wait...");
+      }, 5000);
+    } else {
+      setLoadingMessage("Sending...");
+    }
+    return () => clearTimeout(timer);
+  }, [isLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -127,7 +141,7 @@ const ForgotPassword = () => {
               {isLoading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Sending...
+                  {loadingMessage}
                 </>
               ) : (
                 "Send Reset Link"
