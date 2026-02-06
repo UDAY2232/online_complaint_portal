@@ -327,11 +327,11 @@ const sendVerificationEmail = async (email, token) => {
   }
 
   try {
-    const frontendBaseUrl = process.env.FRONTEND_BASE_URL || process.env.FRONTEND_URL;
-    if (!frontendBaseUrl) {
-      throw new Error('FRONTEND_BASE_URL environment variable is missing. Please set it in your .env file for verification links to work.');
+    const frontendUrl = process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL;
+    if (!frontendUrl) {
+      throw new Error('FRONTEND_URL environment variable is missing. Please set it in your .env file for verification links to work.');
     }
-    const verificationUrl = `${frontendBaseUrl}/verify-email?token=${token}`;
+    const verificationUrl = `${frontendUrl}/verify-email?token=${token}`;
 
     const mailOptions = {
       from: `"Complaint Portal" <${process.env.EMAIL_USER}>`,
