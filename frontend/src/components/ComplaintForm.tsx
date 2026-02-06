@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import axios from "axios";
+import { api } from "@/lib/api";
 
 interface ComplaintFormProps {
   onSubmit?: (created?: any) => void;
@@ -60,10 +60,8 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
         formData.append("image", file); // ✅ backend expects "image"
       }
 
-      const res = await axios.post(
-        "https://online-complaint-backend.onrender.com/api/complaints",
-        formData
-      );
+      // Use the api module which properly uses VITE_API_URL
+      const res = await api.createComplaint(formData);
 
       toast({
         title: "Complaint submitted",

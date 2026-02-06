@@ -36,13 +36,17 @@ app.use(helmetConfig); // Secure HTTP headers
 app.use(compressionMiddleware); // Gzip compression
 
 // CORS configuration - allow both local and production URLs
+// Support both FRONTEND_URL (preferred) and FRONTEND_BASE_URL (legacy)
 const allowedOrigins = [
+  process.env.FRONTEND_URL,
   process.env.FRONTEND_BASE_URL,
   'https://online-complaint-portal.vercel.app',
   'https://online-complaint-portal-git-main.vercel.app'
 ].filter(Boolean);
 
-console.log('🌐 CORS allowed origins:', allowedOrigins);
+// Deduplicate origins
+const uniqueOrigins = [...new Set(allowedOrigins)];
+console.log('🌐 CORS allowed origins:', uniqueOrigins);
 
 app.use(cors({
   origin: function(origin, callback) {
@@ -50,7 +54,7 @@ app.use(cors({
     if (!origin) return callback(null, true);
     
     // Check if origin is in allowed list
-    if (allowedOrigins.includes(origin)) {
+    if (uniqueOrigins.includes(origin)) {
       return callback(null, true);
     }
     
@@ -773,12 +777,33 @@ app.put(
         complaint: updated[0],
       });
     } catch (err) {
-      console.error("❌ Resolve complaint error:", err.message);
-      console.error("Full error:", err);
-      res.status(500).json({ 
+      // Enhanced error logging for production debugging
+      console.error("❌ ========== RESOLVE COMPLAINT ERROR ==========");
+      console.error("❌ Complaint ID:", req.params.id);
+      console.error("❌ Error Type:", err.name || 'Unknown');
+      console.error("❌ Error Message:", err.message);
+      console.error("❌ Has File:", !!req.file);
+      if (err.http_code) console.error("❌ Cloudinary HTTP Code:", err.http_code);
+      console.error("❌ Stack:", err.stack);
+      console.error("❌ =============================================");
+      
+      // Categorize error for response
+      let statusCode = 500;
+      let errorMessage = "Failed to resolve complaint";
+      
+      if (err.http_code === 401 || err.message?.includes('cloudinary')) {
+        errorMessage = "Image upload failed - check Cloudinary configuration";
+      } else if (err.code === 'LIMIT_FILE_SIZE') {
+        statusCode = 400;
+        errorMessage = "File too large (max 5MB)";
+      } else if (err.code === 'ER_') {
+        errorMessage = "Database error occurred";
+      }
+      
+      res.status(statusCode).json({ 
         success: false,
-        error: "Failed to resolve complaint", 
-        details: err.message 
+        error: errorMessage, 
+        details: process.env.NODE_ENV === 'development' ? err.message : undefined
       });
     }
   }
@@ -852,12 +877,33 @@ app.post(
         complaint: updated[0],
       });
     } catch (err) {
-      console.error("❌ Resolve complaint error:", err.message);
-      console.error("Full error:", err);
-      res.status(500).json({ 
+      // Enhanced error logging for production debugging
+      console.error("❌ ========== RESOLVE COMPLAINT ERROR (POST) ==========");
+      console.error("❌ Complaint ID:", req.params.id);
+      console.error("❌ Error Type:", err.name || 'Unknown');
+      console.error("❌ Error Message:", err.message);
+      console.error("❌ Has File:", !!req.file);
+      if (err.http_code) console.error("❌ Cloudinary HTTP Code:", err.http_code);
+      console.error("❌ Stack:", err.stack);
+      console.error("❌ ======================================================");
+      
+      // Categorize error for response
+      let statusCode = 500;
+      let errorMessage = "Failed to resolve complaint";
+      
+      if (err.http_code === 401 || err.message?.includes('cloudinary')) {
+        errorMessage = "Image upload failed - check Cloudinary configuration";
+      } else if (err.code === 'LIMIT_FILE_SIZE') {
+        statusCode = 400;
+        errorMessage = "File too large (max 5MB)";
+      } else if (err.code === 'ER_') {
+        errorMessage = "Database error occurred";
+      }
+      
+      res.status(statusCode).json({ 
         success: false,
-        error: "Failed to resolve complaint", 
-        details: err.message 
+        error: errorMessage, 
+        details: process.env.NODE_ENV === 'development' ? err.message : undefined
       });
     }
   }
