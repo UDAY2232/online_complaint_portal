@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +36,7 @@ const UserComplaints = () => {
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const fetchCalledRef = useRef(false);
   const { toast } = useToast();
   const userEmail = localStorage.getItem("userEmail") || "User";
 
@@ -68,6 +69,9 @@ const UserComplaints = () => {
   };
 
   useEffect(() => {
+    // Prevent double fetch in React StrictMode
+    if (fetchCalledRef.current) return;
+    fetchCalledRef.current = true;
     fetchComplaints();
   }, []);
 
@@ -162,7 +166,7 @@ const UserComplaints = () => {
               <div className="flex gap-2">
                 <Button 
                   variant="outline" 
-                  onClick={fetchComplaints}
+                  onClick={() => { fetchCalledRef.current = false; fetchComplaints(); }}
                   disabled={isLoading}
                 >
                   <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />

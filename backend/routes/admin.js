@@ -56,6 +56,7 @@ const initAdminRoutes = (db) => {
       const usersWithStatus = users.map(u => ({
         ...u,
         status: u.status || 'active'
+        
       }));
       res.json(usersWithStatus);
     } catch (err) {

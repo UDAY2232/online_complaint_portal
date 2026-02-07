@@ -37,10 +37,12 @@ const AdminComplaints = () => {
   const [filteredComplaints, setFilteredComplaints] = useState<Complaint[]>([]);
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
   const [isResolving, setIsResolving] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [adminMessage, setAdminMessage] = useState("");
   const [resolvedImage, setResolvedImage] = useState<File | null>(null);
   const [resolvedImagePreview, setResolvedImagePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fetchCalledRef = useRef(false);
   const { toast } = useToast();
 
   // Filters
@@ -50,6 +52,7 @@ const AdminComplaints = () => {
   const [categoryFilter, setCategoryFilter] = useState("all");
 
   const fetchComplaints = async () => {
+    setIsLoading(true);
     try {
       const response = await api.getComplaints();
       const normalized = response.data.map((c: any) => ({ ...c, date: c.date || c.created_at }));
@@ -62,10 +65,15 @@ const AdminComplaints = () => {
         description: "Failed to fetch complaints.",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
   };
 
   useEffect(() => {
+    // Prevent double fetch in React StrictMode
+    if (fetchCalledRef.current) return;
+    fetchCalledRef.current = true;
     fetchComplaints();
   }, []);
 
@@ -248,11 +256,21 @@ const AdminComplaints = () => {
         <main className="flex-1 p-6">
           <div className="max-w-7xl mx-auto space-y-6">
             {/* Header */}
-            <div>
-              <h1 className="text-3xl font-bold">All Complaints</h1>
-              <p className="text-muted-foreground mt-2">
-                View and manage all complaints ({filteredComplaints.length} of {complaints.length})
-              </p>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h1 className="text-3xl font-bold">All Complaints</h1>
+                <p className="text-muted-foreground mt-2">
+                  View and manage all complaints ({filteredComplaints.length} of {complaints.length})
+                </p>
+              </div>
+              <Button 
+                variant="outline" 
+                onClick={() => { fetchCalledRef.current = false; fetchComplaints(); }}
+                disabled={isLoading}
+              >
+                <Loader2 className={`h-4 w-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
+                Refresh
+              </Button>
             </div>
 
             {/* Filters */}
@@ -332,7 +350,14 @@ const AdminComplaints = () => {
 
             {/* Complaints List */}
             <div className="grid gap-4">
-              {filteredComplaints.length === 0 ? (
+              {isLoading ? (
+                <Card>
+                  <CardContent className="py-12 text-center">
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-muted-foreground" />
+                    <p className="text-muted-foreground">Loading complaints...</p>
+                  </CardContent>
+                </Card>
+              ) : filteredComplaints.length === 0 ? (
                 <Card>
                   <CardContent className="py-12 text-center">
                     <p className="text-muted-foreground">No complaints match your filters.</p>

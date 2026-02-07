@@ -7,18 +7,32 @@
 const nodemailer = require('nodemailer');
 
 let transporter = null;
-let emailEnabled = false;
+let initializationAttempted = false;
 
 /**
  * Initialize the email transporter with cloud-compatible settings
+ * PRODUCTION: Transporter is created if credentials exist - NO verify() call
+ * Gmail SMTP on Render works even if verification fails or times out
  */
 const initializeTransporter = () => {
+  // Prevent multiple initializations
+  if (initializationAttempted && transporter) {
+    console.log('📧 Email transporter already initialized');
+    return transporter;
+  }
+  initializationAttempted = true;
+
   // Check if credentials are configured
   if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
     console.log('📧 ⚠️ Email credentials not configured - email service disabled');
-    emailEnabled = false;
+    console.log('📧 ⚠️ Set EMAIL_USER and EMAIL_PASS in environment variables');
     return null;
   }
+
+  const isProduction = process.env.NODE_ENV === 'production';
+  console.log('📧 [INIT] Creating email transporter...');
+  console.log('📧 [INIT] Environment:', isProduction ? 'PRODUCTION' : 'development');
+  console.log('📧 [INIT] EMAIL_USER:', process.env.EMAIL_USER.substring(0, 5) + '***');
 
   transporter = nodemailer.createTransport({
     host: process.env.EMAIL_HOST || 'smtp.gmail.com',
@@ -41,23 +55,27 @@ const initializeTransporter = () => {
     }
   });
 
-  // Async verification without blocking
+  console.log('📧 [INIT] ✅ Email transporter CREATED - ready for sendMail()');
+
+  // PRODUCTION: Skip verify() entirely - it often fails on Render but sendMail works
+  if (isProduction) {
+    console.log('📧 [INIT] Production mode - skipping transporter.verify()');
+    console.log('📧 [INIT] Emails will be sent directly without pre-verification');
+    return transporter;
+  }
+
+  // DEVELOPMENT ONLY: Async verification for debugging - does not affect sending
   const verifyTransporter = async () => {
     try {
       const verifyPromise = transporter.verify();
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Verification timeout')), 30000)
+        setTimeout(() => reject(new Error('Verification timeout')), 10000)
       );
       
       await Promise.race([verifyPromise, timeoutPromise]);
-      console.log('📧 ✅ Email transporter ready to send');
-      emailEnabled = true;
+      console.log('📧 [INIT] ✅ Dev verification successful');
     } catch (error) {
-      console.error('📧 ❌ Email transporter verification failed:', error.message);
-      console.log('📧 ⚠️ Email notifications will be disabled');
-      console.log('📧 ℹ️ Note: Emails may still work - enabling anyway');
-      // Enable anyway if credentials exist
-      emailEnabled = true;
+      console.log('📧 [INIT] ⚠️ Dev verification failed (non-blocking):', error.message);
     }
   };
 
@@ -66,9 +84,9 @@ const initializeTransporter = () => {
 };
 
 /**
- * Check if email is enabled
+ * Check if email is enabled (transporter exists)
  */
-const isEmailEnabled = () => emailEnabled;
+const isEmailEnabled = () => !!transporter;
 
 /**
  * Get the transporter instance
@@ -85,8 +103,14 @@ const getAdminEmail = () => process.env.ADMIN_EMAIL || null;
  * @param {object} complaint - Complaint object with user email
  */
 const sendComplaintSubmissionEmail = async (complaint) => {
-  if (!emailEnabled || !transporter) {
-    console.log('📧 ⚠️ Email disabled - skipping submission notification');
+  // Reinitialize transporter if needed
+  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    console.log('📧 [SUBMISSION] Transporter missing, reinitializing...');
+    initializeTransporter();
+  }
+
+  if (!transporter) {
+    console.log('📧 ⚠️ No transporter - skipping submission notification');
     return false;
   }
 
@@ -151,8 +175,14 @@ const sendComplaintSubmissionEmail = async (complaint) => {
  * @param {number} hoursOverdue - Hours past SLA
  */
 const sendEscalationEmail = async (complaint, hoursOverdue) => {
-  if (!emailEnabled || !transporter) {
-    console.log('📧 ⚠️ Email disabled - skipping escalation notification');
+  // Reinitialize transporter if needed
+  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    console.log('📧 [ESCALATION] Transporter missing, reinitializing...');
+    initializeTransporter();
+  }
+
+  if (!transporter) {
+    console.log('📧 ⚠️ No transporter - skipping escalation notification');
     return false;
   }
 
@@ -232,14 +262,26 @@ const sendEscalationEmail = async (complaint, hoursOverdue) => {
  * @param {object} complaint - Complaint object
  */
 const sendResolutionEmail = async (complaint) => {
-  if (!emailEnabled || !transporter) {
-    console.log('📧 ⚠️ Email disabled - skipping resolution notification');
-    return;
+  console.log('📧 [PRODUCTION LOG] sendResolutionEmail called');
+  console.log('📧 [PRODUCTION LOG] Complaint ID:', complaint?.id);
+  console.log('📧 [PRODUCTION LOG] problem_image_url:', complaint?.problem_image_url || 'NONE');
+  console.log('📧 [PRODUCTION LOG] resolved_image_url:', complaint?.resolved_image_url || 'NONE');
+  console.log('📧 [PRODUCTION LOG] resolution_message:', complaint?.resolution_message ? 'Present' : 'NONE');
+
+  // Reinitialize transporter if needed
+  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    console.log('📧 [RESOLUTION] Transporter missing, reinitializing...');
+    initializeTransporter();
+  }
+
+  if (!transporter) {
+    console.log('📧 ⚠️ No transporter - skipping resolution notification');
+    return false;
   }
 
   if (!complaint.email) {
     console.log('📧 ⚠️ No email address - skipping resolution notification');
-    return;
+    return false;
   }
 
   try {
@@ -306,11 +348,15 @@ const sendResolutionEmail = async (complaint) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log(`📧 ✅ Resolution email sent to: ${complaint.email}`);
-    console.log('📧 Message ID:', info.messageId);
+    console.log('📧 [PRODUCTION LOG] ✅ Resolution email SENT successfully');
+    console.log(`📧 [PRODUCTION LOG] Recipient: ${complaint.email}`);
+    console.log('📧 [PRODUCTION LOG] Message ID:', info.messageId);
+    console.log('📧 [PRODUCTION LOG] Response:', info.response);
     return true;
   } catch (err) {
-    console.error(`📧 ❌ Failed to send resolution email to ${complaint.email}:`, err.message);
+    console.error('📧 [PRODUCTION LOG] ❌ Resolution email FAILED');
+    console.error(`📧 [PRODUCTION LOG] Recipient: ${complaint.email}`);
+    console.error('📧 [PRODUCTION LOG] Error:', err.message);
     return false;
   }
 };
@@ -321,8 +367,14 @@ const sendResolutionEmail = async (complaint) => {
  * @param {string} token - Verification token
  */
 const sendVerificationEmail = async (email, token) => {
-  if (!emailEnabled || !transporter) {
-    console.log('📧 ⚠️ Email disabled - skipping verification email');
+  // Reinitialize transporter if needed
+  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    console.log('📧 [VERIFICATION] Transporter missing, reinitializing...');
+    initializeTransporter();
+  }
+
+  if (!transporter) {
+    console.log('📧 ⚠️ No transporter - skipping verification email');
     return false;
   }
 
@@ -381,7 +433,6 @@ const sendVerificationEmail = async (email, token) => {
 const sendPasswordResetEmail = async (email, name, resetUrl, expiryMinutes = 15) => {
   console.log('📧 [PASSWORD RESET] Starting email send...');
   console.log('📧 [PASSWORD RESET] Recipient:', email);
-  console.log('📧 [PASSWORD RESET] emailEnabled:', emailEnabled);
   console.log('📧 [PASSWORD RESET] transporter exists:', !!transporter);
   
   // If transporter doesn't exist but credentials do, try to create it
@@ -445,11 +496,14 @@ const sendPasswordResetEmail = async (email, name, resetUrl, expiryMinutes = 15)
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('📧 ✅ Password reset email sent to:', email);
-    console.log('📧 Message ID:', info.messageId);
+    console.log('📧 [PRODUCTION LOG] ✅ Password reset email SENT successfully');
+    console.log('📧 [PRODUCTION LOG] Recipient:', email);
+    console.log('📧 [PRODUCTION LOG] Message ID:', info.messageId);
     return true;
   } catch (err) {
-    console.error('📧 ❌ Failed to send password reset email:', err.message);
+    console.error('📧 [PRODUCTION LOG] ❌ Password reset email FAILED');
+    console.error('📧 [PRODUCTION LOG] Recipient:', email);
+    console.error('📧 [PRODUCTION LOG] Error:', err.message);
     return false;
   }
 };
@@ -461,8 +515,14 @@ const sendPasswordResetEmail = async (email, name, resetUrl, expiryMinutes = 15)
  * @param {string} newStatus - New status value
  */
 const sendStatusChangeEmail = async (complaint, newStatus) => {
-  if (!emailEnabled || !transporter) {
-    console.log('📧 ⚠️ Email disabled - skipping status change notification');
+  // Reinitialize transporter if needed
+  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    console.log('📧 [STATUS CHANGE] Transporter missing, reinitializing...');
+    initializeTransporter();
+  }
+
+  if (!transporter) {
+    console.log('📧 ⚠️ No transporter - skipping status change notification');
     return false;
   }
 
@@ -521,10 +581,15 @@ const sendStatusChangeEmail = async (complaint, newStatus) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log(`📧 ✅ Status change email sent to: ${complaint.email}`);
+    console.log('📧 [PRODUCTION LOG] ✅ Status change email SENT successfully');
+    console.log(`📧 [PRODUCTION LOG] Recipient: ${complaint.email}`);
+    console.log('📧 [PRODUCTION LOG] New Status:', newStatus);
+    console.log('📧 [PRODUCTION LOG] Message ID:', info.messageId);
     return true;
   } catch (err) {
-    console.error(`📧 ❌ Failed to send status change email to ${complaint.email}:`, err.message);
+    console.error('📧 [PRODUCTION LOG] ❌ Status change email FAILED');
+    console.error(`📧 [PRODUCTION LOG] Recipient: ${complaint.email}`);
+    console.error('📧 [PRODUCTION LOG] Error:', err.message);
     return false;
   }
 };

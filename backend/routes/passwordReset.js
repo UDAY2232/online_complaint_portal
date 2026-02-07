@@ -158,19 +158,34 @@ const initPasswordResetRoutes = (db) => {
       // Support both FRONTEND_URL and FRONTEND_BASE_URL for compatibility
       const frontendUrl = process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL;
       
+      // CRITICAL: Do NOT generate localhost links in production
       if (!frontendUrl) {
-        console.error('📧 ❌ FRONTEND_URL environment variable is NOT SET!');
-        console.error('📧 ❌ Please set FRONTEND_URL or FRONTEND_BASE_URL in your .env file');
+        console.error('📧 ❌ CRITICAL: FRONTEND_URL environment variable is NOT SET!');
+        console.error('📧 ❌ Password reset emails CANNOT be sent without FRONTEND_URL');
+        console.error('📧 ❌ Please set FRONTEND_URL or FRONTEND_BASE_URL in Render environment variables');
         console.error('📧 ❌ Example: FRONTEND_URL=https://your-app.vercel.app');
         // Still return success to user (don't leak internal errors)
         return res.json(successResponse);
       }
       
-      // Warn if localhost is detected in production
-      if (process.env.NODE_ENV === 'production' && frontendUrl.includes('localhost')) {
-        console.warn('📧 ⚠️ WARNING: FRONTEND_URL contains localhost in production!');
-        console.warn('📧 ⚠️ Reset links will NOT work on mobile/external devices');
-        console.warn('📧 ⚠️ Set FRONTEND_URL to your production URL');
+      // CRITICAL: Block localhost URLs in production - they will never work on user devices
+      const isProduction = process.env.NODE_ENV === 'production';
+      const isLocalhost = frontendUrl.includes('localhost') || frontendUrl.includes('127.0.0.1');
+      
+      if (isProduction && isLocalhost) {
+        console.error('📧 ❌ CRITICAL: FRONTEND_URL contains localhost in production!');
+        console.error('📧 ❌ Current FRONTEND_URL:', frontendUrl);
+        console.error('📧 ❌ Reset links with localhost will NOT work on user devices!');
+        console.error('📧 ❌ BLOCKING email send - fix FRONTEND_URL in Render environment variables');
+        console.error('📧 ❌ Example: FRONTEND_URL=https://your-app.vercel.app');
+        // Still return success to user (don't leak internal errors)
+        return res.json(successResponse);
+      }
+      
+      // Additional warning for non-HTTPS in production
+      if (isProduction && !frontendUrl.startsWith('https://')) {
+        console.warn('📧 ⚠️ WARNING: FRONTEND_URL is not HTTPS in production');
+        console.warn('📧 ⚠️ Current FRONTEND_URL:', frontendUrl);
       }
       
       // Build reset URL with token as query parameter
