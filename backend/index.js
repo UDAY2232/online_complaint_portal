@@ -286,26 +286,34 @@ app.get("/api/email-status", (req, res) => {
   const transporterExists = !!getTransporter();
   const frontendUrl = process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL;
   const isProduction = process.env.NODE_ENV === 'production';
+  const sendgridConfigured = !!process.env.SENDGRID_API_KEY;
   
   res.json({
-    configured: transporterExists,
+    configured: transporterExists || sendgridConfigured,
     environment: isProduction ? 'production' : 'development',
+    SENDGRID_API_KEY: sendgridConfigured ? "✅ SET (production email via HTTP API)" : "❌ NOT SET",
     EMAIL_HOST: process.env.EMAIL_HOST || 'smtp.gmail.com (default)',
     EMAIL_PORT: process.env.EMAIL_PORT || '587 (default)',
     EMAIL_USER: process.env.EMAIL_USER ? `✅ SET (${process.env.EMAIL_USER.substring(0,5)}***)` : "❌ NOT SET",
     EMAIL_PASS: process.env.EMAIL_PASS ? `✅ SET (${process.env.EMAIL_PASS.length} chars)` : "❌ NOT SET",
     FRONTEND_URL: frontendUrl ? `✅ ${frontendUrl}` : "❌ NOT SET - password reset links broken!",
     ADMIN_EMAIL: process.env.ADMIN_EMAIL ? `✅ ${process.env.ADMIN_EMAIL}` : "❌ NOT SET",
-    transporter: transporterExists ? "✅ CREATED" : "❌ NULL",
-    message: transporterExists 
-      ? "Email is configured and ready" 
-      : "Email NOT configured - add EMAIL_USER and EMAIL_PASS to Render environment variables",
-    troubleshooting: [
-      "1. Go to https://myaccount.google.com/apppasswords",
-      "2. Create new App Password for 'Mail' on 'Other (Render)'",
-      "3. Copy the 16-char password (no spaces)",
-      "4. Update EMAIL_PASS in Render Environment Variables",
-      "5. Click 'Manual Deploy' in Render"
+    transporter: transporterExists ? "✅ CREATED" : "❌ NULL (OK if SendGrid is configured)",
+    sendgrid: sendgridConfigured ? "✅ ENABLED (primary)" : "❌ DISABLED",
+    message: sendgridConfigured 
+      ? "SendGrid configured - emails will send via HTTP API (works on Render)" 
+      : (transporterExists 
+        ? "SMTP configured (may fail on Render free tier)" 
+        : "Email NOT configured - add SENDGRID_API_KEY to Render environment variables"),
+    troubleshooting: sendgridConfigured ? [
+      "SendGrid is configured for production email",
+      "Emails will be sent via HTTP API (no SMTP port blocking)"
+    ] : [
+      "Recommended: Add SENDGRID_API_KEY for production",
+      "1. Sign up at sendgrid.com",
+      "2. Create an API Key with Mail Send permission",
+      "3. Add SENDGRID_API_KEY to Render Environment Variables",
+      "4. Click 'Manual Deploy' in Render"
     ]
   });
 });

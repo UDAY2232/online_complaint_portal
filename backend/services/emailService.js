@@ -3,32 +3,32 @@
  * Centralized email functionality for the application
  * All emails are sent to actual recipients from database - NO hardcoded emails
  * 
- * PRODUCTION: Uses Resend API (HTTP-based, works on Render free tier)
+ * PRODUCTION: Uses SendGrid API (HTTP-based, works on Render free tier)
  * DEVELOPMENT: Uses Nodemailer SMTP (direct connection)
  */
 
 const nodemailer = require('nodemailer');
 
-// ================= RESEND API SETUP =================
-let resendClient = null;
-const RESEND_API_KEY = process.env.RESEND_API_KEY;
-const USE_RESEND = !!RESEND_API_KEY;
-let resendInitError = null;
+// ================= SENDGRID API SETUP =================
+let sgMail = null;
+const SENDGRID_API_KEY = process.env.SENDGRID_API_KEY;
+const USE_SENDGRID = !!SENDGRID_API_KEY;
+let sendgridInitError = null;
 
-console.log('📧 [STARTUP] RESEND_API_KEY present:', !!RESEND_API_KEY);
+console.log('📧 [STARTUP] SENDGRID_API_KEY present:', !!SENDGRID_API_KEY);
 
-if (USE_RESEND) {
+if (USE_SENDGRID) {
   try {
-    const { Resend } = require('resend');
-    resendClient = new Resend(RESEND_API_KEY);
-    console.log('📧 ✅ Resend API initialized successfully');
+    sgMail = require('@sendgrid/mail');
+    sgMail.setApiKey(SENDGRID_API_KEY);
+    console.log('📧 ✅ SendGrid API initialized successfully');
   } catch (err) {
-    resendInitError = err.message;
-    console.error('📧 ❌ Failed to initialize Resend:', err.message);
-    console.error('📧 ❌ Make sure resend package is installed: npm install resend');
+    sendgridInitError = err.message;
+    console.error('📧 ❌ Failed to initialize SendGrid:', err.message);
+    console.error('📧 ❌ Make sure @sendgrid/mail package is installed: npm install @sendgrid/mail');
   }
 } else {
-  console.log('📧 ⚠️ RESEND_API_KEY not set - will use SMTP only');
+  console.log('📧 ⚠️ SENDGRID_API_KEY not set - will use SMTP only');
 }
 
 let transporter = null;
@@ -147,7 +147,7 @@ const getTransporter = () => transporter;
 const getAdminEmail = () => process.env.ADMIN_EMAIL || null;
 
 /**
- * Unified Email Sender - Uses Resend API (production) or Nodemailer (development)
+ * Unified Email Sender - Uses SendGrid API (production) or Nodemailer (development)
  * @param {object} options - { to, subject, html, from }
  * @returns {object} - { success, messageId, error }
  */
@@ -156,38 +156,40 @@ const sendEmailUnified = async (options) => {
   const fromEmail = from || process.env.EMAIL_USER || 'noreply@complaint-portal.com';
   
   console.log('📧 [UNIFIED] Starting email send...');
-  console.log('📧 [UNIFIED] USE_RESEND:', USE_RESEND);
-  console.log('📧 [UNIFIED] resendClient exists:', !!resendClient);
-  console.log('📧 [UNIFIED] resendInitError:', resendInitError || 'none');
+  console.log('📧 [UNIFIED] USE_SENDGRID:', USE_SENDGRID);
+  console.log('📧 [UNIFIED] sgMail exists:', !!sgMail);
+  console.log('📧 [UNIFIED] sendgridInitError:', sendgridInitError || 'none');
   
-  // TRY RESEND FIRST (for production on Render)
-  if (USE_RESEND && resendClient) {
+  // TRY SENDGRID FIRST (for production on Render)
+  if (USE_SENDGRID && sgMail) {
     try {
-      console.log('📧 [RESEND] Sending via Resend API...');
-      console.log('📧 [RESEND] To:', to);
-      console.log('📧 [RESEND] Subject:', subject);
+      console.log('📧 [SENDGRID] Sending via SendGrid API...');
+      console.log('📧 [SENDGRID] To:', to);
+      console.log('📧 [SENDGRID] Subject:', subject);
+      console.log('📧 [SENDGRID] From:', fromEmail);
       
-      const { data, error } = await resendClient.emails.send({
-        from: `Complaint Portal <onboarding@resend.dev>`, // Use Resend's domain for free tier
-        to: [to],
+      const msg = {
+        to: to,
+        from: fromEmail, // Must be verified sender in SendGrid
         subject: subject,
         html: html,
-      });
+      };
       
-      if (error) {
-        console.error('📧 ❌ [RESEND] API Error:', JSON.stringify(error));
-        throw new Error(error.message || JSON.stringify(error) || 'Resend API error');
-      }
+      const response = await sgMail.send(msg);
+      const messageId = response[0]?.headers?.['x-message-id'] || 'sendgrid-' + Date.now();
       
-      console.log('📧 ✅ [RESEND] Email sent! ID:', data?.id);
-      return { success: true, messageId: data?.id, method: 'resend' };
+      console.log('📧 ✅ [SENDGRID] Email sent! Status:', response[0]?.statusCode);
+      console.log('📧 ✅ [SENDGRID] Message ID:', messageId);
+      return { success: true, messageId: messageId, method: 'sendgrid' };
     } catch (err) {
-      console.error('📧 ❌ [RESEND] Failed:', err.message);
-      console.error('📧 ❌ [RESEND] Full error:', err);
+      console.error('📧 ❌ [SENDGRID] Failed:', err.message);
+      if (err.response) {
+        console.error('📧 ❌ [SENDGRID] Response body:', JSON.stringify(err.response.body));
+      }
       // Fall through to nodemailer attempt
     }
   } else {
-    console.log('📧 [UNIFIED] Skipping Resend - USE_RESEND:', USE_RESEND, 'resendClient:', !!resendClient);
+    console.log('📧 [UNIFIED] Skipping SendGrid - USE_SENDGRID:', USE_SENDGRID, 'sgMail:', !!sgMail);
   }
   
   // FALLBACK TO NODEMAILER (for local development)
