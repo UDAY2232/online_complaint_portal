@@ -212,16 +212,23 @@ const sendEmailUnified = async (options) => {
         }
       };
       
-      // Add CID attachments for inline images
+      // Add attachments (supports both inline CID and regular attachments)
       if (attachments.length > 0) {
-        msg.attachments = attachments.map(att => ({
-          content: att.content,
-          filename: att.filename,
-          type: att.type,
-          disposition: 'inline',
-          content_id: att.content_id
-        }));
-        console.log('📧 [SENDGRID] Added', attachments.length, 'inline attachments');
+        msg.attachments = attachments.map(att => {
+          const attachment = {
+            content: att.content,
+            filename: att.filename,
+            type: att.type,
+            disposition: att.disposition || 'attachment'  // Default to attachment
+          };
+          // Only add content_id for inline images
+          if (att.content_id) {
+            attachment.content_id = att.content_id;
+            attachment.disposition = 'inline';
+          }
+          return attachment;
+        });
+        console.log('📧 [SENDGRID] Added', attachments.length, 'attachments');
       }
       
       const response = await sgMail.send(msg);
@@ -253,15 +260,21 @@ const sendEmailUnified = async (options) => {
         html: html,
       };
       
-      // Add CID attachments for Nodemailer
+      // Add attachments for Nodemailer
       if (attachments.length > 0) {
-        mailOptions.attachments = attachments.map(att => ({
-          filename: att.filename,
-          content: att.content,
-          encoding: 'base64',
-          cid: att.content_id,
-          contentType: att.type
-        }));
+        mailOptions.attachments = attachments.map(att => {
+          const attachment = {
+            filename: att.filename,
+            content: att.content,
+            encoding: 'base64',
+            contentType: att.type
+          };
+          // Only add cid for inline images
+          if (att.content_id) {
+            attachment.cid = att.content_id;
+          }
+          return attachment;
+        });
       }
       
       const info = await transporter.sendMail(mailOptions);
