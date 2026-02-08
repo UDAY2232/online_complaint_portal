@@ -282,17 +282,6 @@ const sendComplaintSubmissionEmail = async (complaint) => {
  * @param {number} hoursOverdue - Hours past SLA
  */
 const sendEscalationEmail = async (complaint, hoursOverdue) => {
-  // Reinitialize transporter if needed
-  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    console.log('📧 [ESCALATION] Transporter missing, reinitializing...');
-    initializeTransporter();
-  }
-
-  if (!transporter) {
-    console.log('📧 ⚠️ No transporter - skipping escalation notification');
-    return false;
-  }
-
   // Get admin email from environment - NOT hardcoded
   const adminEmail = getAdminEmail();
   if (!adminEmail) {
@@ -310,54 +299,53 @@ const sendEscalationEmail = async (complaint, hoursOverdue) => {
       ? '<p><strong>User:</strong> <em>Anonymous</em></p>'
       : `<p><strong>User Email:</strong> <a href="mailto:${complaint.email}">${complaint.email}</a></p>`;
 
-    const mailOptions = {
-      from: `"Complaint Portal - URGENT" <${process.env.EMAIL_USER}>`,
-      to: adminEmail,  // Send to configured admin email
-      subject: `🚨 ESCALATION: Complaint #${complaint.id} - ${complaint.priority.toUpperCase()} Priority`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 3px solid #ef4444;">
-          <div style="background-color: #fef2f2; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-            <h2 style="color: #dc2626; margin: 0;">🚨 SLA BREACH - ESCALATION ALERT</h2>
-          </div>
-          
-          <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Complaint ID:</strong> #${complaint.id}</p>
-            <p><strong>Category:</strong> ${complaint.category}</p>
-            <p><strong>Priority:</strong> 
-              <span style="color: ${complaint.priority === 'high' ? '#dc2626' : complaint.priority === 'medium' ? '#f59e0b' : '#22c55e'}; font-weight: bold; text-transform: uppercase;">
-                ${complaint.priority}
-              </span>
-            </p>
-            <p><strong>Current Status:</strong> ${complaint.status}</p>
-            <p><strong>Escalation Level:</strong> ${complaint.escalation_level || 1}</p>
-            <p><strong>Hours Pending:</strong> <span style="color: #dc2626; font-weight: bold;">${hoursOverdue} hours overdue</span></p>
-            ${userEmailSection}
-          </div>
-
-          <div style="margin: 20px 0;">
-            <h3>Description:</h3>
-            <p style="background-color: #fff7ed; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b;">
-              ${complaint.description}
-            </p>
-          </div>
-          
-          ${problemImageSection}
-          
-          <hr style="margin: 30px 0; border: none; border-top: 2px solid #ef4444;" />
-          
-          <div style="background-color: #fef2f2; padding: 15px; border-radius: 8px;">
-            <p style="color: #dc2626; font-weight: bold; margin: 0;">
-              ⚠️ IMMEDIATE ACTION REQUIRED - This complaint has exceeded its SLA limit.
-            </p>
-          </div>
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 3px solid #ef4444;">
+        <div style="background-color: #fef2f2; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+          <h2 style="color: #dc2626; margin: 0;">🚨 SLA BREACH - ESCALATION ALERT</h2>
         </div>
-      `,
-    };
+        
+        <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <p><strong>Complaint ID:</strong> #${complaint.id}</p>
+          <p><strong>Category:</strong> ${complaint.category}</p>
+          <p><strong>Priority:</strong> 
+            <span style="color: ${complaint.priority === 'high' ? '#dc2626' : complaint.priority === 'medium' ? '#f59e0b' : '#22c55e'}; font-weight: bold; text-transform: uppercase;">
+              ${complaint.priority}
+            </span>
+          </p>
+          <p><strong>Current Status:</strong> ${complaint.status}</p>
+          <p><strong>Escalation Level:</strong> ${complaint.escalation_level || 1}</p>
+          <p><strong>Hours Pending:</strong> <span style="color: #dc2626; font-weight: bold;">${hoursOverdue} hours overdue</span></p>
+          ${userEmailSection}
+        </div>
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`📧 ✅ Escalation email sent to admin: ${adminEmail}`);
-    console.log('📧 Message ID:', info.messageId);
-    return true;
+        <div style="margin: 20px 0;">
+          <h3>Description:</h3>
+          <p style="background-color: #fff7ed; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b;">
+            ${complaint.description}
+          </p>
+        </div>
+        
+        ${problemImageSection}
+        
+        <hr style="margin: 30px 0; border: none; border-top: 2px solid #ef4444;" />
+        
+        <div style="background-color: #fef2f2; padding: 15px; border-radius: 8px;">
+          <p style="color: #dc2626; font-weight: bold; margin: 0;">
+            ⚠️ IMMEDIATE ACTION REQUIRED - This complaint has exceeded its SLA limit.
+          </p>
+        </div>
+      </div>
+    `;
+
+    const result = await sendEmailUnified({
+      to: adminEmail,
+      subject: `🚨 ESCALATION: Complaint #${complaint.id} - ${complaint.priority.toUpperCase()} Priority`,
+      html: html
+    });
+    
+    console.log(`📧 Escalation email result:`, result);
+    return result.success;
   } catch (err) {
     console.error(`📧 ❌ Failed to send escalation email:`, err.message);
     return false;
@@ -377,20 +365,6 @@ const sendResolutionEmail = async (complaint) => {
   console.log('📧 [RESOLUTION] problem_image_url:', complaint?.problem_image_url || 'NONE');
   console.log('📧 [RESOLUTION] resolved_image_url:', complaint?.resolved_image_url || 'NONE');
   console.log('📧 [RESOLUTION] resolution_message:', complaint?.resolution_message ? 'Present' : 'NONE');
-  console.log('📧 [RESOLUTION] Transporter ready:', !!transporter);
-
-  // Reinitialize transporter if needed
-  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    console.log('📧 [RESOLUTION] Transporter missing, reinitializing...');
-    initializeTransporter();
-  }
-
-  if (!transporter) {
-    console.error('📧 ❌ [RESOLUTION] Transporter is NULL - cannot send email');
-    console.error('📧 ❌ [RESOLUTION] Check EMAIL_USER and EMAIL_PASS in environment');
-    console.log('📧 ========== RESOLUTION EMAIL END (FAILED) ==========\n');
-    return false;
-  }
 
   if (!complaint.email) {
     console.error('📧 ❌ [RESOLUTION] No recipient email - cannot send');
@@ -424,50 +398,48 @@ const sendResolutionEmail = async (complaint) => {
       ? `${resolutionDays} day(s) and ${remainingHours} hour(s)`
       : `${resolutionHours} hour(s)`;
 
-    const mailOptions = {
-      from: `"Complaint Portal" <${process.env.EMAIL_USER}>`,
-      to: complaint.email,
-      subject: `✅ Your Complaint #${complaint.id} Has Been Resolved`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background-color: #ecfdf5; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #22c55e;">
-            <h2 style="color: #22c55e; margin: 0;">✅ Your Complaint Has Been Resolved</h2>
-          </div>
-          
-          <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Complaint ID:</strong> #${complaint.id}</p>
-            <p><strong>Category:</strong> ${complaint.category}</p>
-            <p><strong>Status:</strong> <span style="color: #22c55e; font-weight: bold;">RESOLVED</span></p>
-            <p><strong>Resolution Time:</strong> ${resolutionTimeText}</p>
-          </div>
-          
-          ${complaint.resolution_message ? `
-          <div style="margin: 20px 0;">
-            <h3>📝 Resolution Message:</h3>
-            <p style="background-color: #ecfdf5; padding: 15px; border-radius: 8px; border-left: 4px solid #22c55e;">
-              ${complaint.resolution_message}
-            </p>
-          </div>
-          ` : ''}
-          
-          ${problemImageSection}
-          ${resolvedImageSection}
-          
-          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
-          
-          <p style="color: #6b7280; font-size: 14px;">
-            Thank you for using our Complaint Portal. If you have any further questions or concerns, please don't hesitate to submit a new complaint or reach out to us.
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background-color: #ecfdf5; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #22c55e;">
+          <h2 style="color: #22c55e; margin: 0;">✅ Your Complaint Has Been Resolved</h2>
+        </div>
+        
+        <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <p><strong>Complaint ID:</strong> #${complaint.id}</p>
+          <p><strong>Category:</strong> ${complaint.category}</p>
+          <p><strong>Status:</strong> <span style="color: #22c55e; font-weight: bold;">RESOLVED</span></p>
+          <p><strong>Resolution Time:</strong> ${resolutionTimeText}</p>
+        </div>
+        
+        ${complaint.resolution_message ? `
+        <div style="margin: 20px 0;">
+          <h3>📝 Resolution Message:</h3>
+          <p style="background-color: #ecfdf5; padding: 15px; border-radius: 8px; border-left: 4px solid #22c55e;">
+            ${complaint.resolution_message}
           </p>
         </div>
-      `,
-    };
+        ` : ''}
+        
+        ${problemImageSection}
+        ${resolvedImageSection}
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
+        
+        <p style="color: #6b7280; font-size: 14px;">
+          Thank you for using our Complaint Portal. If you have any further questions or concerns, please don't hesitate to submit a new complaint or reach out to us.
+        </p>
+      </div>
+    `;
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('📧 ✅ [RESOLUTION] Email SENT successfully');
-    console.log('📧 ✅ [RESOLUTION] Recipient:', complaint.email);
-    console.log('📧 ✅ [RESOLUTION] Message ID:', info.messageId);
-    console.log('📧 ========== RESOLUTION EMAIL END (SUCCESS) ==========\n');
-    return true;
+    const result = await sendEmailUnified({
+      to: complaint.email,
+      subject: `✅ Your Complaint #${complaint.id} Has Been Resolved`,
+      html: html
+    });
+
+    console.log('📧 [RESOLUTION] Result:', result);
+    console.log('📧 ========== RESOLUTION EMAIL END ==========\n');
+    return result.success;
   } catch (err) {
     console.error('📧 ❌ [RESOLUTION] Email FAILED');
     console.error('📧 ❌ [RESOLUTION] Recipient:', complaint.email);
@@ -483,17 +455,6 @@ const sendResolutionEmail = async (complaint) => {
  * @param {string} token - Verification token
  */
 const sendVerificationEmail = async (email, token) => {
-  // Reinitialize transporter if needed
-  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    console.log('📧 [VERIFICATION] Transporter missing, reinitializing...');
-    initializeTransporter();
-  }
-
-  if (!transporter) {
-    console.log('📧 ⚠️ No transporter - skipping verification email');
-    return false;
-  }
-
   try {
     const frontendUrl = process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL;
     if (!frontendUrl) {
@@ -501,38 +462,38 @@ const sendVerificationEmail = async (email, token) => {
     }
     const verificationUrl = `${frontendUrl}/verify-email?token=${token}`;
 
-    const mailOptions = {
-      from: `"Complaint Portal" <${process.env.EMAIL_USER}>`,
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <h2 style="color: #3b82f6;">Verify Your Email Address</h2>
+        
+        <p>Thank you for registering with the Complaint Portal. Please verify your email address by clicking the button below:</p>
+        
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${verificationUrl}" 
+             style="background-color: #3b82f6; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+            Verify Email
+          </a>
+        </div>
+        
+        <p style="color: #6b7280; font-size: 14px;">
+          Or copy and paste this link in your browser:<br>
+          <a href="${verificationUrl}">${verificationUrl}</a>
+        </p>
+        
+        <p style="color: #6b7280; font-size: 14px;">
+          This link will expire in 24 hours.
+        </p>
+      </div>
+    `;
+
+    const result = await sendEmailUnified({
       to: email,
       subject: '📧 Verify Your Email - Complaint Portal',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #3b82f6;">Verify Your Email Address</h2>
-          
-          <p>Thank you for registering with the Complaint Portal. Please verify your email address by clicking the button below:</p>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${verificationUrl}" 
-               style="background-color: #3b82f6; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">
-              Verify Email
-            </a>
-          </div>
-          
-          <p style="color: #6b7280; font-size: 14px;">
-            Or copy and paste this link in your browser:<br>
-            <a href="${verificationUrl}">${verificationUrl}</a>
-          </p>
-          
-          <p style="color: #6b7280; font-size: 14px;">
-            This link will expire in 24 hours.
-          </p>
-        </div>
-      `,
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`📧 ✅ Verification email sent to: ${email}`);
-    return true;
+      html: html
+    });
+    
+    console.log(`📧 Verification email result for ${email}:`, result);
+    return result.success;
   } catch (err) {
     console.error(`📧 ❌ Failed to send verification email to ${email}:`, err.message);
     return false;
@@ -617,29 +578,12 @@ const sendPasswordResetEmail = async (email, name, resetUrl, expiryMinutes = 15)
  */
 const sendStatusChangeEmail = async (complaint, newStatus) => {
   console.log('\n📧 ========== STATUS CHANGE EMAIL START ==========');
-  console.log('📧 [STATUS CHANGE] Email type: STATUS_CHANGE');
   console.log('📧 [STATUS CHANGE] Complaint ID:', complaint?.id);
   console.log('📧 [STATUS CHANGE] Recipient email:', complaint?.email || 'NONE');
-  console.log('📧 [STATUS CHANGE] User ID:', complaint?.user_id || 'NONE');
   console.log('📧 [STATUS CHANGE] New Status:', newStatus);
-  console.log('📧 [STATUS CHANGE] Transporter ready:', !!transporter);
-
-  // Reinitialize transporter if needed
-  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    console.log('📧 [STATUS CHANGE] Transporter missing, reinitializing...');
-    initializeTransporter();
-  }
-
-  if (!transporter) {
-    console.error('📧 ❌ [STATUS CHANGE] Transporter is NULL - cannot send email');
-    console.error('📧 ❌ [STATUS CHANGE] Check EMAIL_USER and EMAIL_PASS in environment');
-    console.log('📧 ========== STATUS CHANGE EMAIL END (FAILED) ==========\n');
-    return false;
-  }
 
   if (!complaint?.email) {
     console.error('📧 ❌ [STATUS CHANGE] No recipient email - cannot send');
-    console.error('📧 ❌ [STATUS CHANGE] Complaint may be anonymous or email not resolved from users table');
     console.log('📧 ========== STATUS CHANGE EMAIL END (SKIPPED) ==========\n');
     return false;
   }
@@ -655,55 +599,51 @@ const sendStatusChangeEmail = async (complaint, newStatus) => {
     const statusColor = '#f59e0b'; // amber/warning color for under-review
     const statusText = 'Under Review';
 
-    const mailOptions = {
-      from: `"Complaint Portal" <${process.env.EMAIL_USER}>`,
-      to: complaint.email,
-      subject: `🔍 Complaint #${complaint.id} Status Update - Now ${statusText}`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid ${statusColor};">
-            <h2 style="color: #92400e; margin: 0;">🔍 Your Complaint is Being Reviewed</h2>
-          </div>
-          
-          <p>Dear ${complaint.name || 'User'},</p>
-          
-          <p>Good news! Your complaint has been picked up by our team and is now being reviewed.</p>
-          
-          <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Complaint ID:</strong> #${complaint.id}</p>
-            <p><strong>Category:</strong> ${complaint.category}</p>
-            <p><strong>Priority:</strong> <span style="text-transform: uppercase;">${complaint.priority}</span></p>
-            <p><strong>Status:</strong> <span style="color: ${statusColor}; font-weight: bold;">${statusText.toUpperCase()}</span></p>
-          </div>
-          
-          <div style="margin: 20px 0;">
-            <h3>Description:</h3>
-            <p style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid ${statusColor};">
-              ${complaint.description}
-            </p>
-          </div>
-          
-          <p>Our team is working on resolving your complaint. You will receive another email once it's resolved.</p>
-          
-          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
-          
-          <p style="color: #6b7280; font-size: 14px;">
-            Thank you for your patience. If you have any additional information to provide, please submit a new complaint referencing this ID.
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+        <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid ${statusColor};">
+          <h2 style="color: #92400e; margin: 0;">🔍 Your Complaint is Being Reviewed</h2>
+        </div>
+        
+        <p>Dear ${complaint.name || 'User'},</p>
+        
+        <p>Good news! Your complaint has been picked up by our team and is now being reviewed.</p>
+        
+        <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <p><strong>Complaint ID:</strong> #${complaint.id}</p>
+          <p><strong>Category:</strong> ${complaint.category}</p>
+          <p><strong>Priority:</strong> <span style="text-transform: uppercase;">${complaint.priority}</span></p>
+          <p><strong>Status:</strong> <span style="color: ${statusColor}; font-weight: bold;">${statusText.toUpperCase()}</span></p>
+        </div>
+        
+        <div style="margin: 20px 0;">
+          <h3>Description:</h3>
+          <p style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid ${statusColor};">
+            ${complaint.description}
           </p>
         </div>
-      `,
-    };
+        
+        <p>Our team is working on resolving your complaint. You will receive another email once it's resolved.</p>
+        
+        <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
+        
+        <p style="color: #6b7280; font-size: 14px;">
+          Thank you for your patience. If you have any additional information to provide, please submit a new complaint referencing this ID.
+        </p>
+      </div>
+    `;
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('📧 ✅ [STATUS CHANGE] Email SENT successfully');
-    console.log('📧 ✅ [STATUS CHANGE] Recipient:', complaint.email);
-    console.log('📧 ✅ [STATUS CHANGE] Message ID:', info.messageId);
-    console.log('📧 ========== STATUS CHANGE EMAIL END (SUCCESS) ==========\n');
-    return true;
+    const result = await sendEmailUnified({
+      to: complaint.email,
+      subject: `🔍 Complaint #${complaint.id} Status Update - Now ${statusText}`,
+      html: html
+    });
+
+    console.log('📧 [STATUS CHANGE] Result:', result);
+    console.log('📧 ========== STATUS CHANGE EMAIL END ==========\n');
+    return result.success;
   } catch (err) {
-    console.error('📧 ❌ [STATUS CHANGE] Email FAILED');
-    console.error('📧 ❌ [STATUS CHANGE] Recipient:', complaint.email);
-    console.error('📧 ❌ [STATUS CHANGE] Error:', err.message);
+    console.error('📧 ❌ [STATUS CHANGE] Email FAILED:', err.message);
     console.log('📧 ========== STATUS CHANGE EMAIL END (FAILED) ==========\n');
     return false;
   }
@@ -788,18 +728,6 @@ const sendSuperadminEscalationAlert = async (complaint, hoursOverdue, superadmin
   console.log('📧 [SUPERADMIN ALERT] Escalation Level:', complaint?.escalation_level);
   console.log('📧 [SUPERADMIN ALERT] Superadmin Email:', superadminEmail || 'NONE');
 
-  // Reinitialize transporter if needed
-  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    console.log('📧 [SUPERADMIN ALERT] Transporter missing, reinitializing...');
-    initializeTransporter();
-  }
-
-  if (!transporter) {
-    console.log('📧 ⚠️ [SUPERADMIN ALERT] No transporter - skipping notification');
-    console.log('📧 ========== SUPERADMIN ESCALATION ALERT END (SKIPPED) ==========\n');
-    return false;
-  }
-
   if (!superadminEmail) {
     console.log('📧 ⚠️ [SUPERADMIN ALERT] No superadmin email provided - skipping notification');
     console.log('📧 ========== SUPERADMIN ESCALATION ALERT END (SKIPPED) ==========\n');
@@ -824,11 +752,7 @@ const sendSuperadminEscalationAlert = async (complaint, hoursOverdue, superadmin
       ? '<p><strong>Submitted by:</strong> <em>Anonymous User</em></p>'
       : `<p><strong>Submitted by:</strong> ${complaint.name || 'User'} (<a href="mailto:${complaint.email}">${complaint.email}</a>)</p>`;
 
-    const mailOptions = {
-      from: `"Complaint Portal - ${urgencyLevel} ALERT" <${process.env.EMAIL_USER}>`,
-      to: superadminEmail,
-      subject: `🚨 ${urgencyLevel} ESCALATION: Complaint #${complaint.id} - Level ${complaint.escalation_level}`,
-      html: `
+    const html = `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 4px solid ${urgencyColor}; border-radius: 12px;">
           <div style="background-color: ${urgencyColor}15; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
             <h1 style="color: ${urgencyColor}; margin: 0; font-size: 28px;">🚨 ${urgencyLevel} ESCALATION ALERT</h1>
@@ -904,18 +828,19 @@ const sendSuperadminEscalationAlert = async (complaint, hoursOverdue, superadmin
             This is an automated alert from the Complaint Portal Escalation System
           </p>
         </div>
-      `,
-    };
+      `;
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('📧 ✅ [SUPERADMIN ALERT] Email sent successfully');
-    console.log('📧 ✅ [SUPERADMIN ALERT] Recipient:', superadminEmail);
-    console.log('📧 ✅ [SUPERADMIN ALERT] Message ID:', info.messageId);
-    console.log('📧 ========== SUPERADMIN ESCALATION ALERT END (SUCCESS) ==========\n');
-    return true;
+    const result = await sendEmailUnified({
+      to: superadminEmail,
+      subject: `🚨 ${urgencyLevel} ESCALATION: Complaint #${complaint.id} - Level ${complaint.escalation_level}`,
+      html: html
+    });
+    
+    console.log('📧 [SUPERADMIN ALERT] Result:', result);
+    console.log('📧 ========== SUPERADMIN ESCALATION ALERT END ==========\n');
+    return result.success;
   } catch (err) {
-    console.error('📧 ❌ [SUPERADMIN ALERT] Email FAILED');
-    console.error('📧 ❌ [SUPERADMIN ALERT] Error:', err.message);
+    console.error('📧 ❌ [SUPERADMIN ALERT] Email FAILED:', err.message);
     console.log('📧 ========== SUPERADMIN ESCALATION ALERT END (FAILED) ==========\n');
     return false;
   }
