@@ -8,6 +8,38 @@
  */
 
 const nodemailer = require('nodemailer');
+const axios = require('axios');
+
+// ================= IMAGE TO BASE64 HELPER =================
+/**
+ * Fetch image from URL and convert to base64 data URI
+ * @param {string} imageUrl - The URL of the image
+ * @returns {string|null} - Base64 data URI or null if failed
+ */
+const fetchImageAsBase64 = async (imageUrl) => {
+  if (!imageUrl) return null;
+  
+  try {
+    console.log('📷 Fetching image for base64:', imageUrl.substring(0, 50) + '...');
+    const response = await axios.get(imageUrl, {
+      responseType: 'arraybuffer',
+      timeout: 15000, // 15 second timeout
+      headers: {
+        'Accept': 'image/*'
+      }
+    });
+    
+    const contentType = response.headers['content-type'] || 'image/jpeg';
+    const base64 = Buffer.from(response.data, 'binary').toString('base64');
+    const dataUri = `data:${contentType};base64,${base64}`;
+    
+    console.log('📷 ✅ Image converted to base64, size:', Math.round(base64.length / 1024), 'KB');
+    return dataUri;
+  } catch (error) {
+    console.error('📷 ❌ Failed to fetch image:', error.message);
+    return null;
+  }
+};
 
 // ================= SENDGRID API SETUP =================
 let sgMail = null;
@@ -385,25 +417,40 @@ const sendResolutionEmail = async (complaint) => {
   }
 
   try {
-    const problemImageSection = complaint.problem_image_url
+    // Fetch images and convert to base64 for inline embedding (prevents Gmail blocking)
+    console.log('📧 [RESOLUTION] Fetching images for base64 embedding...');
+    
+    const problemImageBase64 = complaint.problem_image_url 
+      ? await fetchImageAsBase64(complaint.problem_image_url) 
+      : null;
+    
+    const resolvedImageBase64 = complaint.resolved_image_url 
+      ? await fetchImageAsBase64(complaint.resolved_image_url) 
+      : null;
+
+    const problemImageSection = problemImageBase64
       ? `<div style="margin: 20px 0;">
            <h3 style="color: #dc2626;">❌ BEFORE (Problem):</h3>
-           <a href="${complaint.problem_image_url}" target="_blank" style="display: block; text-decoration: none;">
-             <img src="${complaint.problem_image_url}" alt="Problem Image - Click to view full size" width="400" height="auto" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #ef4444;" />
-           </a>
-           <p style="font-size: 12px; color: #6b7280; margin-top: 8px;">Click image to view full size or <a href="${complaint.problem_image_url}" target="_blank">open in new tab</a></p>
+           <img src="${problemImageBase64}" alt="Problem Image" width="400" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #ef4444;" />
          </div>`
-      : '';
+      : (complaint.problem_image_url 
+        ? `<div style="margin: 20px 0;">
+             <h3 style="color: #dc2626;">❌ BEFORE (Problem):</h3>
+             <p><a href="${complaint.problem_image_url}" target="_blank" style="color: #3b82f6;">Click here to view Problem Image</a></p>
+           </div>`
+        : '');
 
-    const resolvedImageSection = complaint.resolved_image_url
+    const resolvedImageSection = resolvedImageBase64
       ? `<div style="margin: 20px 0;">
            <h3 style="color: #22c55e;">✅ AFTER (Resolved):</h3>
-           <a href="${complaint.resolved_image_url}" target="_blank" style="display: block; text-decoration: none;">
-             <img src="${complaint.resolved_image_url}" alt="Resolution Image - Click to view full size" width="400" height="auto" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #22c55e;" />
-           </a>
-           <p style="font-size: 12px; color: #6b7280; margin-top: 8px;">Click image to view full size or <a href="${complaint.resolved_image_url}" target="_blank">open in new tab</a></p>
+           <img src="${resolvedImageBase64}" alt="Resolution Image" width="400" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #22c55e;" />
          </div>`
-      : '';
+      : (complaint.resolved_image_url 
+        ? `<div style="margin: 20px 0;">
+             <h3 style="color: #22c55e;">✅ AFTER (Resolved):</h3>
+             <p><a href="${complaint.resolved_image_url}" target="_blank" style="color: #3b82f6;">Click here to view Resolution Image</a></p>
+           </div>`
+        : '');
 
     // Calculate resolution time
     const createdAt = new Date(complaint.created_at);
