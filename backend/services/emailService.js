@@ -8,37 +8,30 @@
  */
 
 const nodemailer = require('nodemailer');
-const axios = require('axios');
 
-// ================= IMAGE TO BASE64 HELPER =================
+// ================= CLOUDINARY IMAGE OPTIMIZER =================
 /**
- * Fetch image from URL and convert to base64 data URI
- * @param {string} imageUrl - The URL of the image
- * @returns {string|null} - Base64 data URI or null if failed
+ * Optimize Cloudinary image URL for email - smaller size, better quality
+ * Cloudinary URLs are trusted by Gmail and other email clients
+ * @param {string} imageUrl - Original Cloudinary URL
+ * @returns {string} - Optimized URL with transformations
  */
-const fetchImageAsBase64 = async (imageUrl) => {
+const optimizeCloudinaryUrl = (imageUrl) => {
   if (!imageUrl) return null;
   
-  try {
-    console.log('📷 Fetching image for base64:', imageUrl.substring(0, 50) + '...');
-    const response = await axios.get(imageUrl, {
-      responseType: 'arraybuffer',
-      timeout: 15000, // 15 second timeout
-      headers: {
-        'Accept': 'image/*'
-      }
-    });
-    
-    const contentType = response.headers['content-type'] || 'image/jpeg';
-    const base64 = Buffer.from(response.data, 'binary').toString('base64');
-    const dataUri = `data:${contentType};base64,${base64}`;
-    
-    console.log('📷 ✅ Image converted to base64, size:', Math.round(base64.length / 1024), 'KB');
-    return dataUri;
-  } catch (error) {
-    console.error('📷 ❌ Failed to fetch image:', error.message);
-    return null;
+  // Check if it's a Cloudinary URL
+  if (imageUrl.includes('res.cloudinary.com') && imageUrl.includes('/upload/')) {
+    // Add transformations: width 400px, quality 80%, auto format
+    const optimizedUrl = imageUrl.replace(
+      '/upload/',
+      '/upload/w_400,q_80,f_auto/'
+    );
+    console.log('📷 Optimized Cloudinary URL:', optimizedUrl.substring(0, 80) + '...');
+    return optimizedUrl;
   }
+  
+  // Return original if not Cloudinary
+  return imageUrl;
 };
 
 // ================= SENDGRID API SETUP =================
@@ -331,10 +324,11 @@ const sendEscalationEmail = async (complaint, hoursOverdue) => {
   }
 
   try {
-    const problemImageSection = complaint.problem_image_url
+    const problemImageUrl = optimizeCloudinaryUrl(complaint.problem_image_url);
+    const problemImageSection = problemImageUrl
       ? `<p><strong>Problem Image:</strong></p>
-         <a href="${complaint.problem_image_url}" target="_blank" style="display: block; text-decoration: none;">
-           <img src="${complaint.problem_image_url}" alt="Problem Image" width="400" height="auto" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #ef4444;" />
+         <a href="${complaint.problem_image_url}" target="_blank">
+           <img src="${problemImageUrl}" alt="Problem Image" width="400" height="300" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #ef4444;" />
          </a>`
       : '<p><em>No image attached</em></p>';
 
@@ -417,40 +411,30 @@ const sendResolutionEmail = async (complaint) => {
   }
 
   try {
-    // Fetch images and convert to base64 for inline embedding (prevents Gmail blocking)
-    console.log('📧 [RESOLUTION] Fetching images for base64 embedding...');
+    // Use optimized Cloudinary URLs (smaller, trusted by email clients)
+    console.log('📧 [RESOLUTION] Optimizing image URLs for email...');
     
-    const problemImageBase64 = complaint.problem_image_url 
-      ? await fetchImageAsBase64(complaint.problem_image_url) 
-      : null;
-    
-    const resolvedImageBase64 = complaint.resolved_image_url 
-      ? await fetchImageAsBase64(complaint.resolved_image_url) 
-      : null;
+    const problemImageUrl = optimizeCloudinaryUrl(complaint.problem_image_url);
+    const resolvedImageUrl = optimizeCloudinaryUrl(complaint.resolved_image_url);
 
-    const problemImageSection = problemImageBase64
+    // Build image sections with direct Cloudinary URLs (Gmail trusts Cloudinary)
+    const problemImageSection = problemImageUrl
       ? `<div style="margin: 20px 0;">
-           <h3 style="color: #dc2626;">❌ BEFORE (Problem):</h3>
-           <img src="${problemImageBase64}" alt="Problem Image" width="400" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #ef4444;" />
+           <h3 style="color: #dc2626;">❌ BEFORE (User Uploaded Problem):</h3>
+           <a href="${complaint.problem_image_url}" target="_blank">
+             <img src="${problemImageUrl}" alt="Problem Image" width="400" height="300" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #ef4444;" />
+           </a>
          </div>`
-      : (complaint.problem_image_url 
-        ? `<div style="margin: 20px 0;">
-             <h3 style="color: #dc2626;">❌ BEFORE (Problem):</h3>
-             <p><a href="${complaint.problem_image_url}" target="_blank" style="color: #3b82f6;">Click here to view Problem Image</a></p>
-           </div>`
-        : '');
+      : '';
 
-    const resolvedImageSection = resolvedImageBase64
+    const resolvedImageSection = resolvedImageUrl
       ? `<div style="margin: 20px 0;">
-           <h3 style="color: #22c55e;">✅ AFTER (Resolved):</h3>
-           <img src="${resolvedImageBase64}" alt="Resolution Image" width="400" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #22c55e;" />
+           <h3 style="color: #22c55e;">✅ AFTER (Admin Resolution):</h3>
+           <a href="${complaint.resolved_image_url}" target="_blank">
+             <img src="${resolvedImageUrl}" alt="Resolution Image" width="400" height="300" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #22c55e;" />
+           </a>
          </div>`
-      : (complaint.resolved_image_url 
-        ? `<div style="margin: 20px 0;">
-             <h3 style="color: #22c55e;">✅ AFTER (Resolved):</h3>
-             <p><a href="${complaint.resolved_image_url}" target="_blank" style="color: #3b82f6;">Click here to view Resolution Image</a></p>
-           </div>`
-        : '');
+      : '';
 
     // Calculate resolution time
     const createdAt = new Date(complaint.created_at);
