@@ -301,7 +301,9 @@ const sendEscalationEmail = async (complaint, hoursOverdue) => {
   try {
     const problemImageSection = complaint.problem_image_url
       ? `<p><strong>Problem Image:</strong></p>
-         <img src="${complaint.problem_image_url}" alt="Problem" style="max-width: 400px; border-radius: 8px; border: 2px solid #ef4444;" />`
+         <a href="${complaint.problem_image_url}" target="_blank" style="display: block; text-decoration: none;">
+           <img src="${complaint.problem_image_url}" alt="Problem Image" width="400" height="auto" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #ef4444;" />
+         </a>`
       : '<p><em>No image attached</em></p>';
 
     const userEmailSection = complaint.is_anonymous || !complaint.email
@@ -386,14 +388,20 @@ const sendResolutionEmail = async (complaint) => {
     const problemImageSection = complaint.problem_image_url
       ? `<div style="margin: 20px 0;">
            <h3 style="color: #dc2626;">❌ BEFORE (Problem):</h3>
-           <img src="${complaint.problem_image_url}" alt="Problem" style="max-width: 400px; border-radius: 8px; border: 2px solid #ef4444;" />
+           <a href="${complaint.problem_image_url}" target="_blank" style="display: block; text-decoration: none;">
+             <img src="${complaint.problem_image_url}" alt="Problem Image - Click to view full size" width="400" height="auto" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #ef4444;" />
+           </a>
+           <p style="font-size: 12px; color: #6b7280; margin-top: 8px;">Click image to view full size or <a href="${complaint.problem_image_url}" target="_blank">open in new tab</a></p>
          </div>`
       : '';
 
     const resolvedImageSection = complaint.resolved_image_url
       ? `<div style="margin: 20px 0;">
            <h3 style="color: #22c55e;">✅ AFTER (Resolved):</h3>
-           <img src="${complaint.resolved_image_url}" alt="Resolution" style="max-width: 400px; border-radius: 8px; border: 2px solid #22c55e;" />
+           <a href="${complaint.resolved_image_url}" target="_blank" style="display: block; text-decoration: none;">
+             <img src="${complaint.resolved_image_url}" alt="Resolution Image - Click to view full size" width="400" height="auto" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #22c55e;" />
+           </a>
+           <p style="font-size: 12px; color: #6b7280; margin-top: 8px;">Click image to view full size or <a href="${complaint.resolved_image_url}" target="_blank">open in new tab</a></p>
          </div>`
       : '';
 

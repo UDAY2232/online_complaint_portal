@@ -165,6 +165,16 @@ const AdminComplaints = () => {
   const handleResolveComplaint = async () => {
     if (!selectedComplaint) return;
 
+    // Validate required resolution image
+    if (!resolvedImage) {
+      toast({
+        title: "Resolution Image Required",
+        description: "Please upload a resolution image before marking as resolved.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsResolving(true);
     try {
       const formData = new FormData();
@@ -511,7 +521,9 @@ const AdminComplaints = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="resolved_image">Resolution Image (Optional)</Label>
+                  <Label htmlFor="resolved_image" className="flex items-center gap-1">
+                    Resolution Image <span className="text-destructive">*</span>
+                  </Label>
                   <div className="flex items-center gap-2">
                     <Input
                       ref={fileInputRef}

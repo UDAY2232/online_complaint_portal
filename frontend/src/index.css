@@ -114,4 +114,16 @@ All colors MUST be HSL.
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Hide native browser password reveal button to avoid double eye icons */
+  input[type="password"]::-ms-reveal,
+  input[type="password"]::-ms-clear {
+    display: none;
+  }
+
+  /* Hide password reveal for Edge and other browsers */
+  input::-ms-reveal,
+  input::-ms-clear {
+    display: none;
+  }
 }
