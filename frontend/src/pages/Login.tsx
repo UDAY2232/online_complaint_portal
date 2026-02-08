@@ -29,7 +29,9 @@ const Login = () => {
     const userRole = localStorage.getItem("userRole");
     
     if (isAuthenticated && userRole) {
-      if (userRole === "admin" || userRole === "superadmin") {
+      if (userRole === "superadmin") {
+        navigate("/superadmin/dashboard", { replace: true });
+      } else if (userRole === "admin") {
         navigate("/admin/dashboard", { replace: true });
       } else {
         navigate("/user/dashboard", { replace: true });
@@ -64,13 +66,17 @@ const Login = () => {
 
       toast({
         title: "Login successful",
-        description: user.role === "admin" || user.role === "superadmin" 
+        description: user.role === "superadmin" 
+          ? "Welcome Super Admin!" 
+          : user.role === "admin" 
           ? "Welcome Admin!" 
           : "Welcome back!",
       });
 
       // Redirect based on role (use replace to prevent back navigation)
-      if (user.role === "admin" || user.role === "superadmin") {
+      if (user.role === "superadmin") {
+        navigate("/superadmin/dashboard", { replace: true });
+      } else if (user.role === "admin") {
         navigate("/admin/dashboard", { replace: true });
       } else {
         navigate("/user/dashboard", { replace: true });

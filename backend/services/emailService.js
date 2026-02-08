@@ -9,6 +9,34 @@ const nodemailer = require('nodemailer');
 let transporter = null;
 let initializationAttempted = false;
 
+// ================= STARTUP VALIDATION =================
+// CRITICAL: Check FRONTEND_URL at module load time
+const FRONTEND_URL = process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL;
+const isProduction = process.env.NODE_ENV === 'production';
+
+if (!FRONTEND_URL) {
+  console.error('\n========== CRITICAL EMAIL CONFIG ERROR ==========');
+  console.error('📧 ❌ FRONTEND_URL is NOT SET!');
+  console.error('📧 ❌ Password reset links will NOT work!');
+  console.error('📧 ❌ Please set FRONTEND_URL in environment variables');
+  console.error('📧 ❌ Example: FRONTEND_URL=https://your-app.vercel.app');
+  console.error('=================================================\n');
+} else if (isProduction && (FRONTEND_URL.includes('localhost') || FRONTEND_URL.includes('127.0.0.1'))) {
+  console.error('\n========== CRITICAL EMAIL CONFIG ERROR ==========');
+  console.error('📧 ❌ FRONTEND_URL contains localhost in PRODUCTION!');
+  console.error('📧 ❌ Current value:', FRONTEND_URL);
+  console.error('📧 ❌ This will cause broken email links!');
+  console.error('📧 ❌ Fix FRONTEND_URL in Render environment variables');
+  console.error('=================================================\n');
+} else {
+  console.log('📧 ✅ FRONTEND_URL configured:', FRONTEND_URL);
+}
+
+/**
+ * Get the configured frontend URL (for password reset links, etc.)
+ */
+const getFrontendUrl = () => FRONTEND_URL;
+
 /**
  * Initialize the email transporter with cloud-compatible settings
  * PRODUCTION: Transporter is created if credentials exist - NO verify() call
@@ -35,32 +63,32 @@ const initializeTransporter = () => {
   console.log('📧 [INIT] EMAIL_USER:', process.env.EMAIL_USER.substring(0, 5) + '***');
 
   transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: parseInt(process.env.EMAIL_PORT) || 587,
-    secure: false, // Use STARTTLS
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS?.replace(/\s/g, ''),
-    },
-    // Cloud platform compatibility settings
-    connectionTimeout: 60000,
-    greetingTimeout: 30000,
-    socketTimeout: 60000,
-    pool: true,
-    maxConnections: 3,
-    maxMessages: 100,
-    tls: {
-      rejectUnauthorized: false,
-      minVersion: 'TLSv1.2'
-    }
-  });
+
+  host: 'smtp.gmail.com',
+
+  port: 465,
+  secure: true,   // ✅ IMPORTANT
+
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS?.replace(/\s/g, ''),
+  },
+
+  connectionTimeout: 20000,
+  greetingTimeout: 20000,
+  socketTimeout: 20000,
+
+  tls: {
+    rejectUnauthorized: false
+  }
+});
+
 
   console.log('📧 [INIT] ✅ Email transporter CREATED - ready for sendMail()');
 
   // PRODUCTION: Skip verify() entirely - it often fails on Render but sendMail works
   if (isProduction) {
-    console.log('📧 [INIT] Production mode - skipping transporter.verify()');
-    console.log('📧 [INIT] Emails will be sent directly without pre-verification');
+    console.log('📧 Skipping email transporter verification in production');
     return transporter;
   }
 
@@ -84,11 +112,6 @@ const initializeTransporter = () => {
 };
 
 /**
- * Check if email is enabled (transporter exists)
- */
-const isEmailEnabled = () => !!transporter;
-
-/**
  * Get the transporter instance
  */
 const getTransporter = () => transporter;
@@ -103,6 +126,12 @@ const getAdminEmail = () => process.env.ADMIN_EMAIL || null;
  * @param {object} complaint - Complaint object with user email
  */
 const sendComplaintSubmissionEmail = async (complaint) => {
+  console.log('\n📧 ========== SUBMISSION EMAIL START ==========');
+  console.log('📧 [SUBMISSION] Email type: COMPLAINT_SUBMISSION');
+  console.log('📧 [SUBMISSION] Complaint ID:', complaint?.id);
+  console.log('📧 [SUBMISSION] Recipient email:', complaint?.email || 'NONE');
+  console.log('📧 [SUBMISSION] Transporter ready:', !!transporter);
+
   // Reinitialize transporter if needed
   if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
     console.log('📧 [SUBMISSION] Transporter missing, reinitializing...');
@@ -110,13 +139,16 @@ const sendComplaintSubmissionEmail = async (complaint) => {
   }
 
   if (!transporter) {
-    console.log('📧 ⚠️ No transporter - skipping submission notification');
+    console.error('📧 ❌ [SUBMISSION] Transporter is NULL - cannot send email');
+    console.error('📧 ❌ [SUBMISSION] Check EMAIL_USER and EMAIL_PASS in environment');
+    console.log('📧 ========== SUBMISSION EMAIL END (FAILED) ==========\n');
     return false;
   }
 
   // Email goes to the user who submitted the complaint
   if (!complaint?.email) {
-    console.log('📧 ⚠️ No email address - skipping submission notification');
+    console.error('📧 ❌ [SUBMISSION] No recipient email - cannot send');
+    console.log('📧 ========== SUBMISSION EMAIL END (SKIPPED) ==========\n');
     return false;
   }
 
@@ -161,10 +193,16 @@ const sendComplaintSubmissionEmail = async (complaint) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log(`📧 ✅ Submission confirmation sent to: ${complaint.email}`);
+    console.log('📧 ✅ [SUBMISSION] Email SENT successfully');
+    console.log('📧 ✅ [SUBMISSION] Recipient:', complaint.email);
+    console.log('📧 ✅ [SUBMISSION] Message ID:', info.messageId);
+    console.log('📧 ========== SUBMISSION EMAIL END (SUCCESS) ==========\n');
     return true;
   } catch (err) {
-    console.error(`📧 ❌ Failed to send submission email to ${complaint.email}:`, err.message);
+    console.error('📧 ❌ [SUBMISSION] Email FAILED');
+    console.error('📧 ❌ [SUBMISSION] Recipient:', complaint.email);
+    console.error('📧 ❌ [SUBMISSION] Error:', err.message);
+    console.log('📧 ========== SUBMISSION EMAIL END (FAILED) ==========\n');
     return false;
   }
 };
@@ -259,14 +297,18 @@ const sendEscalationEmail = async (complaint, hoursOverdue) => {
 
 /**
  * Send Resolution Email to User (Enhanced version)
- * @param {object} complaint - Complaint object
+ * @param {object} complaint - Complaint object (must have .email resolved from users table)
  */
 const sendResolutionEmail = async (complaint) => {
-  console.log('📧 [PRODUCTION LOG] sendResolutionEmail called');
-  console.log('📧 [PRODUCTION LOG] Complaint ID:', complaint?.id);
-  console.log('📧 [PRODUCTION LOG] problem_image_url:', complaint?.problem_image_url || 'NONE');
-  console.log('📧 [PRODUCTION LOG] resolved_image_url:', complaint?.resolved_image_url || 'NONE');
-  console.log('📧 [PRODUCTION LOG] resolution_message:', complaint?.resolution_message ? 'Present' : 'NONE');
+  console.log('\n📧 ========== RESOLUTION EMAIL START ==========');
+  console.log('📧 [RESOLUTION] Email type: COMPLAINT_RESOLVED');
+  console.log('📧 [RESOLUTION] Complaint ID:', complaint?.id);
+  console.log('📧 [RESOLUTION] Recipient email:', complaint?.email || 'NONE');
+  console.log('📧 [RESOLUTION] User ID:', complaint?.user_id || 'NONE');
+  console.log('📧 [RESOLUTION] problem_image_url:', complaint?.problem_image_url || 'NONE');
+  console.log('📧 [RESOLUTION] resolved_image_url:', complaint?.resolved_image_url || 'NONE');
+  console.log('📧 [RESOLUTION] resolution_message:', complaint?.resolution_message ? 'Present' : 'NONE');
+  console.log('📧 [RESOLUTION] Transporter ready:', !!transporter);
 
   // Reinitialize transporter if needed
   if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
@@ -275,12 +317,16 @@ const sendResolutionEmail = async (complaint) => {
   }
 
   if (!transporter) {
-    console.log('📧 ⚠️ No transporter - skipping resolution notification');
+    console.error('📧 ❌ [RESOLUTION] Transporter is NULL - cannot send email');
+    console.error('📧 ❌ [RESOLUTION] Check EMAIL_USER and EMAIL_PASS in environment');
+    console.log('📧 ========== RESOLUTION EMAIL END (FAILED) ==========\n');
     return false;
   }
 
   if (!complaint.email) {
-    console.log('📧 ⚠️ No email address - skipping resolution notification');
+    console.error('📧 ❌ [RESOLUTION] No recipient email - cannot send');
+    console.error('📧 ❌ [RESOLUTION] Complaint may be anonymous or email not resolved from users table');
+    console.log('📧 ========== RESOLUTION EMAIL END (SKIPPED) ==========\n');
     return false;
   }
 
@@ -348,15 +394,16 @@ const sendResolutionEmail = async (complaint) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('📧 [PRODUCTION LOG] ✅ Resolution email SENT successfully');
-    console.log(`📧 [PRODUCTION LOG] Recipient: ${complaint.email}`);
-    console.log('📧 [PRODUCTION LOG] Message ID:', info.messageId);
-    console.log('📧 [PRODUCTION LOG] Response:', info.response);
+    console.log('📧 ✅ [RESOLUTION] Email SENT successfully');
+    console.log('📧 ✅ [RESOLUTION] Recipient:', complaint.email);
+    console.log('📧 ✅ [RESOLUTION] Message ID:', info.messageId);
+    console.log('📧 ========== RESOLUTION EMAIL END (SUCCESS) ==========\n');
     return true;
   } catch (err) {
-    console.error('📧 [PRODUCTION LOG] ❌ Resolution email FAILED');
-    console.error(`📧 [PRODUCTION LOG] Recipient: ${complaint.email}`);
-    console.error('📧 [PRODUCTION LOG] Error:', err.message);
+    console.error('📧 ❌ [RESOLUTION] Email FAILED');
+    console.error('📧 ❌ [RESOLUTION] Recipient:', complaint.email);
+    console.error('📧 ❌ [RESOLUTION] Error:', err.message);
+    console.log('📧 ========== RESOLUTION EMAIL END (FAILED) ==========\n');
     return false;
   }
 };
@@ -427,13 +474,24 @@ const sendVerificationEmail = async (email, token) => {
  * Send Password Reset Email
  * @param {string} email - User email (from database)
  * @param {string} name - User name
- * @param {string} resetUrl - Password reset URL with token
+ * @param {string} resetUrl - Password reset URL with token (MUST use FRONTEND_URL)
  * @param {number} expiryMinutes - Token expiry in minutes (default 15)
  */
 const sendPasswordResetEmail = async (email, name, resetUrl, expiryMinutes = 15) => {
-  console.log('📧 [PASSWORD RESET] Starting email send...');
+  console.log('\n📧 ========== PASSWORD RESET EMAIL START ==========');
+  console.log('📧 [PASSWORD RESET] Email type: FORGOT_PASSWORD');
   console.log('📧 [PASSWORD RESET] Recipient:', email);
-  console.log('📧 [PASSWORD RESET] transporter exists:', !!transporter);
+  console.log('📧 [PASSWORD RESET] Reset URL:', resetUrl);
+  console.log('📧 [PASSWORD RESET] Transporter ready:', !!transporter);
+  
+  // CRITICAL: Validate reset URL is not localhost in production
+  if (isProduction && resetUrl && (resetUrl.includes('localhost') || resetUrl.includes('127.0.0.1'))) {
+    console.error('📧 ❌ [PASSWORD RESET] BLOCKING: Reset URL contains localhost in production!');
+    console.error('📧 ❌ [PASSWORD RESET] URL:', resetUrl);
+    console.error('📧 ❌ [PASSWORD RESET] Fix FRONTEND_URL in environment variables');
+    console.log('📧 ========== PASSWORD RESET EMAIL END (BLOCKED) ==========\n');
+    return false;
+  }
   
   // If transporter doesn't exist but credentials do, try to create it
   if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
@@ -442,13 +500,16 @@ const sendPasswordResetEmail = async (email, name, resetUrl, expiryMinutes = 15)
   }
   
   if (!transporter) {
-    console.log('📧 ❌ [PASSWORD RESET] Transporter still null after init attempt');
+    console.error('📧 ❌ [PASSWORD RESET] Transporter is NULL - cannot send email');
+    console.error('📧 ❌ [PASSWORD RESET] Check EMAIL_USER and EMAIL_PASS in environment');
+    console.log('📧 ========== PASSWORD RESET EMAIL END (FAILED) ==========\n');
     return false;
   }
 
   // Validate email parameter
   if (!email || typeof email !== 'string' || !email.includes('@')) {
-    console.log('📧 ❌ [PASSWORD RESET] Invalid email address:', email);
+    console.error('📧 ❌ [PASSWORD RESET] Invalid email address:', email);
+    console.log('📧 ========== PASSWORD RESET EMAIL END (FAILED) ==========\n');
     return false;
   }
 
@@ -496,14 +557,16 @@ const sendPasswordResetEmail = async (email, name, resetUrl, expiryMinutes = 15)
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('📧 [PRODUCTION LOG] ✅ Password reset email SENT successfully');
-    console.log('📧 [PRODUCTION LOG] Recipient:', email);
-    console.log('📧 [PRODUCTION LOG] Message ID:', info.messageId);
+    console.log('📧 ✅ [PASSWORD RESET] Email SENT successfully');
+    console.log('📧 ✅ [PASSWORD RESET] Recipient:', email);
+    console.log('📧 ✅ [PASSWORD RESET] Message ID:', info.messageId);
+    console.log('📧 ========== PASSWORD RESET EMAIL END (SUCCESS) ==========\n');
     return true;
   } catch (err) {
-    console.error('📧 [PRODUCTION LOG] ❌ Password reset email FAILED');
-    console.error('📧 [PRODUCTION LOG] Recipient:', email);
-    console.error('📧 [PRODUCTION LOG] Error:', err.message);
+    console.error('📧 ❌ [PASSWORD RESET] Email FAILED');
+    console.error('📧 ❌ [PASSWORD RESET] Recipient:', email);
+    console.error('📧 ❌ [PASSWORD RESET] Error:', err.message);
+    console.log('📧 ========== PASSWORD RESET EMAIL END (FAILED) ==========\n');
     return false;
   }
 };
@@ -511,10 +574,18 @@ const sendPasswordResetEmail = async (email, name, resetUrl, expiryMinutes = 15)
 /**
  * Send Status Change Email to User
  * Called when complaint status changes to 'under-review'
- * @param {object} complaint - Complaint object with email
+ * @param {object} complaint - Complaint object (must have .email resolved from users table)
  * @param {string} newStatus - New status value
  */
 const sendStatusChangeEmail = async (complaint, newStatus) => {
+  console.log('\n📧 ========== STATUS CHANGE EMAIL START ==========');
+  console.log('📧 [STATUS CHANGE] Email type: STATUS_CHANGE');
+  console.log('📧 [STATUS CHANGE] Complaint ID:', complaint?.id);
+  console.log('📧 [STATUS CHANGE] Recipient email:', complaint?.email || 'NONE');
+  console.log('📧 [STATUS CHANGE] User ID:', complaint?.user_id || 'NONE');
+  console.log('📧 [STATUS CHANGE] New Status:', newStatus);
+  console.log('📧 [STATUS CHANGE] Transporter ready:', !!transporter);
+
   // Reinitialize transporter if needed
   if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
     console.log('📧 [STATUS CHANGE] Transporter missing, reinitializing...');
@@ -522,18 +593,23 @@ const sendStatusChangeEmail = async (complaint, newStatus) => {
   }
 
   if (!transporter) {
-    console.log('📧 ⚠️ No transporter - skipping status change notification');
+    console.error('📧 ❌ [STATUS CHANGE] Transporter is NULL - cannot send email');
+    console.error('📧 ❌ [STATUS CHANGE] Check EMAIL_USER and EMAIL_PASS in environment');
+    console.log('📧 ========== STATUS CHANGE EMAIL END (FAILED) ==========\n');
     return false;
   }
 
   if (!complaint?.email) {
-    console.log('📧 ⚠️ No email address - skipping status change notification');
+    console.error('📧 ❌ [STATUS CHANGE] No recipient email - cannot send');
+    console.error('📧 ❌ [STATUS CHANGE] Complaint may be anonymous or email not resolved from users table');
+    console.log('📧 ========== STATUS CHANGE EMAIL END (SKIPPED) ==========\n');
     return false;
   }
 
   // Only send for under-review status (resolved has its own email)
   if (newStatus !== 'under-review') {
-    console.log('📧 ℹ️ Status change email only for under-review, skipping:', newStatus);
+    console.log('📧 ℹ️ [STATUS CHANGE] Status change email only for under-review, skipping:', newStatus);
+    console.log('📧 ========== STATUS CHANGE EMAIL END (SKIPPED) ==========\n');
     return false;
   }
 
@@ -581,23 +657,114 @@ const sendStatusChangeEmail = async (complaint, newStatus) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('📧 [PRODUCTION LOG] ✅ Status change email SENT successfully');
-    console.log(`📧 [PRODUCTION LOG] Recipient: ${complaint.email}`);
-    console.log('📧 [PRODUCTION LOG] New Status:', newStatus);
-    console.log('📧 [PRODUCTION LOG] Message ID:', info.messageId);
+    console.log('📧 ✅ [STATUS CHANGE] Email SENT successfully');
+    console.log('📧 ✅ [STATUS CHANGE] Recipient:', complaint.email);
+    console.log('📧 ✅ [STATUS CHANGE] Message ID:', info.messageId);
+    console.log('📧 ========== STATUS CHANGE EMAIL END (SUCCESS) ==========\n');
     return true;
   } catch (err) {
-    console.error('📧 [PRODUCTION LOG] ❌ Status change email FAILED');
-    console.error(`📧 [PRODUCTION LOG] Recipient: ${complaint.email}`);
-    console.error('📧 [PRODUCTION LOG] Error:', err.message);
+    console.error('📧 ❌ [STATUS CHANGE] Email FAILED');
+    console.error('📧 ❌ [STATUS CHANGE] Recipient:', complaint.email);
+    console.error('📧 ❌ [STATUS CHANGE] Error:', err.message);
+    console.log('📧 ========== STATUS CHANGE EMAIL END (FAILED) ==========\n');
     return false;
+  }
+};
+
+/**
+ * Send Test Email - for debugging email configuration
+ * @param {string} recipientEmail - Email to send test to
+ * @returns {object} - Result with success status and details
+ */
+const sendTestEmail = async (recipientEmail) => {
+  console.log('\n========== TEST EMAIL START ==========');
+  console.log('📧 [TEST] Recipient:', recipientEmail);
+  console.log('📧 [TEST] EMAIL_USER:', process.env.EMAIL_USER ? process.env.EMAIL_USER.substring(0, 5) + '***' : 'NOT SET');
+  console.log('📧 [TEST] EMAIL_PASS:', process.env.EMAIL_PASS ? `SET (${process.env.EMAIL_PASS.length} chars)` : 'NOT SET');
+  console.log('📧 [TEST] Transporter exists:', !!transporter);
+  console.log('📧 [TEST] initializationAttempted:', initializationAttempted);
+
+  // Try to initialize if needed
+  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    console.log('📧 [TEST] Transporter missing, initializing...');
+    initializeTransporter();
+    console.log('📧 [TEST] After init - Transporter exists:', !!transporter);
+  }
+
+  if (!transporter) {
+    const result = {
+      success: false,
+      error: 'No transporter available',
+      details: {
+        EMAIL_USER_SET: !!process.env.EMAIL_USER,
+        EMAIL_PASS_SET: !!process.env.EMAIL_PASS,
+        initializationAttempted,
+        transporterExists: false
+      }
+    };
+    console.log('📧 [TEST] ❌ Failed:', result);
+    console.log('========== TEST EMAIL END ==========\n');
+    return result;
+  }
+
+  const testTo = recipientEmail || process.env.EMAIL_USER;
+  
+  try {
+    const mailOptions = {
+      from: `"Complaint Portal TEST" <${process.env.EMAIL_USER}>`,
+      to: testTo,
+      subject: '✅ Test Email - Complaint Portal (' + new Date().toISOString() + ')',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2 style="color: #22c55e;">✅ Email Service Working!</h2>
+          <p>This test email was sent from your Complaint Portal's centralized email service.</p>
+          <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+          <p><strong>Environment:</strong> ${process.env.NODE_ENV || 'development'}</p>
+          <p><strong>Sent To:</strong> ${testTo}</p>
+        </div>
+      `,
+    };
+
+    console.log('📧 [TEST] Sending to:', testTo);
+    const info = await transporter.sendMail(mailOptions);
+    
+    const result = {
+      success: true,
+      messageId: info.messageId,
+      response: info.response,
+      recipient: testTo,
+      details: {
+        EMAIL_USER_SET: true,
+        EMAIL_PASS_SET: true,
+        transporterExists: true
+      }
+    };
+    console.log('📧 [TEST] ✅ SUCCESS:', info.messageId);
+    console.log('========== TEST EMAIL END ==========\n');
+    return result;
+  } catch (err) {
+    const result = {
+      success: false,
+      error: err.message,
+      code: err.code,
+      responseCode: err.responseCode,
+      details: {
+        EMAIL_USER_SET: true,
+        EMAIL_PASS_SET: true,
+        transporterExists: true,
+        smtpError: true
+      }
+    };
+    console.error('📧 [TEST] ❌ FAILED:', err.message);
+    console.log('========== TEST EMAIL END ==========\n');
+    return result;
   }
 };
 
 module.exports = {
   initializeTransporter,
-  isEmailEnabled,
   getTransporter,
+  getFrontendUrl,
   getAdminEmail,
   sendComplaintSubmissionEmail,
   sendEscalationEmail,
@@ -605,4 +772,5 @@ module.exports = {
   sendVerificationEmail,
   sendPasswordResetEmail,
   sendStatusChangeEmail,
+  sendTestEmail,
 };

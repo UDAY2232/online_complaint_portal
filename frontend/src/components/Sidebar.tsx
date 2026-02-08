@@ -4,7 +4,7 @@ import { Home, FileText, BarChart3, Settings, Users, TrendingUp, AlertTriangle }
 import { useNavigate, useLocation } from "react-router-dom";
 
 interface SidebarProps {
-  role: "user" | "admin";
+  role: "user" | "admin" | "superadmin";
 }
 
 const Sidebar = ({ role }: SidebarProps) => {
@@ -27,7 +27,12 @@ const Sidebar = ({ role }: SidebarProps) => {
     { label: "Settings", path: "/admin/settings", icon: Settings },
   ];
 
-  const links = role === "admin" ? adminLinks : userLinks;
+  const superadminLinks = [
+    { label: "Dashboard", path: "/superadmin/dashboard", icon: Home },
+    { label: "Escalated", path: "/superadmin/dashboard", icon: AlertTriangle },
+  ];
+
+  const links = role === "superadmin" ? superadminLinks : role === "admin" ? adminLinks : userLinks;
 
   return (
     <aside className="w-64 border-r bg-card min-h-screen">

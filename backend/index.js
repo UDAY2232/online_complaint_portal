@@ -3,7 +3,6 @@ require("dotenv").config({ path: path.join(__dirname, ".env") });
 const express = require("express");
 const cors = require("cors");
 const mysql = require("mysql2");
-const nodemailer = require("nodemailer");
 
 const upload = require("./utils/multer");
 const cloudinary = require("./utils/cloudinary");
@@ -11,10 +10,11 @@ const cloudinary = require("./utils/cloudinary");
 // ================= PHASE 6 & 7 IMPORTS =================
 const { runMigrations } = require("./utils/migrations");
 const { startEscalationScheduler } = require("./services/scheduler");
-const { initializeTransporter, sendResolutionEmail: sendResolutionEmailService, sendComplaintSubmissionEmail, sendStatusChangeEmail } = require("./services/emailService");
+const { initializeTransporter, sendResolutionEmail: sendResolutionEmailService, sendComplaintSubmissionEmail, sendStatusChangeEmail, sendTestEmail, getTransporter } = require("./services/emailService");
 const { authenticate, optionalAuth, requireAdmin, requireUser } = require("./middleware/auth");
 const initAuthRoutes = require("./routes/auth");
 const initAdminRoutes = require("./routes/admin");
+const initSuperadminRoutes = require("./routes/superadmin");
 const initPasswordResetRoutes = require("./routes/passwordReset");
 
 // ================= SECURITY MIDDLEWARE =================
@@ -30,6 +30,9 @@ const {
 const { logger, requestLogger, errorLogger } = require("./utils/logger");
 
 const app = express();
+
+app.set("trust proxy", 1);   // ✅ VERY IMPORTANT FOR RENDER / CLOUD
+
 
 // ================= PRODUCTION SECURITY =================
 app.use(helmetConfig); // Secure HTTP headers
@@ -125,82 +128,14 @@ app.get('/api', (req, res) => {
   });
 });
 
-// Rate limiting
+// Rate limiting (forgot-password limiter is in passwordReset routes)
 app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/signup', authLimiter);
-app.use('/api/auth/forgot-password', authLimiter);
 app.use('/api/', generalLimiter);
 
-// ================= EMAIL CONFIGURATION =================
-const EMAIL_USER = process.env.EMAIL_USER;
-const EMAIL_PASS = process.env.EMAIL_PASS?.replace(/\s/g, ""); // Remove spaces from app password
-
-console.log("📧 Email Config Check:", {
-  host: 'smtp.gmail.com',
-  port: '587',
-  user: EMAIL_USER ? `✅ Set (${EMAIL_USER.substring(0, 5)}***)` : "❌ Not set",
-  pass: EMAIL_PASS ? `✅ Set (${EMAIL_PASS.length} chars)` : "❌ Not set",
-});
-
-// Enable email if credentials exist (don't wait for verification)
-let emailEnabled = !!(EMAIL_USER && EMAIL_PASS);
-
-// Create transporter with explicit SMTP settings for better cloud compatibility
-const transporter = EMAIL_USER && EMAIL_PASS ? nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // Use STARTTLS
-  auth: {
-    user: EMAIL_USER,
-    pass: EMAIL_PASS,
-  },
-  // Cloud platform compatibility settings
-  connectionTimeout: 60000, // 60 seconds
-  greetingTimeout: 30000,
-  socketTimeout: 60000,
-  // Pool connections for reliability
-  pool: true,
-  maxConnections: 3,
-  maxMessages: 100,
-  // TLS settings for cloud environments
-  tls: {
-    rejectUnauthorized: false, // Accept self-signed certs in some cloud environments
-    minVersion: 'TLSv1.2'
-  }
-}) : null;
-
-// Async verification with timeout handling for cloud platforms
-const verifyEmailTransporter = async () => {
-  // Check if email credentials are configured
-  if (!EMAIL_USER || !EMAIL_PASS || !transporter) {
-    console.log("📧 ⚠️ Email credentials not configured - email notifications disabled");
-    emailEnabled = false;
-    return;
-  }
-
-  console.log("📧 ✅ Email enabled with credentials - verification will be attempted in background");
-  
-  try {
-    // Set a manual timeout for verification
-    const verifyPromise = transporter.verify();
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Verification timeout after 30s')), 30000)
-    );
-    
-    await Promise.race([verifyPromise, timeoutPromise]);
-    console.log("📧 ✅ Email transporter verified and ready");
-  } catch (error) {
-    console.error("📧 ⚠️ Email verification failed:", error.message);
-    console.log("📧 ℹ️ Will still attempt to send emails - verification often fails on cloud but sending works");
-    // DON'T disable email - verification often fails on cloud but sending works
-  }
-};
-
-// Run verification without blocking server startup
-verifyEmailTransporter();
-
 // ================= INITIALIZE CENTRALIZED EMAIL SERVICE =================
-// Initialize the email service transporter at startup for production reliability
+// Initialize the email service transporter ONCE at startup
+// All email functions come from services/emailService.js
 console.log('📧 Initializing centralized email service...');
 initializeTransporter();
 console.log('📧 Centralized email service initialization complete');
@@ -215,7 +150,6 @@ const sendResolutionEmail = async (complaint) => {
   console.log("📧 Problem Image URL:", complaint?.problem_image_url || "NONE");
   console.log("📧 Resolved Image URL:", complaint?.resolved_image_url || "NONE");
   console.log("📧 Resolution Message:", complaint?.resolution_message ? "Present" : "NONE");
-  console.log("📧 Email Config - Enabled:", emailEnabled, "| Transporter:", !!transporter);
 
   // Critical: Ensure we have user email from database
   if (!complaint?.email) {
@@ -226,13 +160,13 @@ const sendResolutionEmail = async (complaint) => {
   }
 
   try {
-    // Use the centralized email service
+    // Use the centralized email service - it handles transporter initialization
     const result = await sendResolutionEmailService(complaint);
     
     if (result) {
       console.log("📧 ✅ Email sent successfully via emailService");
     } else {
-      console.log("📧 ⚠️ Email service returned false (disabled or failed)");
+      console.log("📧 ⚠️ Email service returned false (check emailService logs)");
     }
     
     console.log("========== EMAIL NOTIFICATION END ==========");
@@ -339,77 +273,23 @@ app.post("/api/debug/test-password", async (req, res) => {
 // ================= TEST EMAIL ENDPOINT =================
 app.get("/api/test-email", async (req, res) => {
   console.log("\n========== TEST EMAIL ENDPOINT ==========");
-  console.log("📧 EMAIL_USER:", EMAIL_USER || "NOT SET");
-  console.log("📧 EMAIL_PASS:", EMAIL_PASS ? `SET (${EMAIL_PASS.length} chars)` : "NOT SET");
-  console.log("📧 emailEnabled:", emailEnabled);
-  console.log("📧 transporter:", transporter ? "EXISTS" : "NULL");
-
-  // Always return diagnostic info
-  const diagnostics = {
-    EMAIL_USER_SET: !!EMAIL_USER,
-    EMAIL_USER_VALUE: EMAIL_USER ? `${EMAIL_USER.substring(0, 5)}***@${EMAIL_USER.split('@')[1] || ''}` : "NOT SET",
-    EMAIL_PASS_SET: !!EMAIL_PASS,
-    EMAIL_PASS_LENGTH: EMAIL_PASS ? EMAIL_PASS.length : 0,
-    emailEnabled,
-    transporterExists: !!transporter,
-    nodeEnv: process.env.NODE_ENV || 'not set'
-  };
-
-  if (!emailEnabled || !transporter) {
-    return res.json({
-      success: false,
-      error: "Email not configured - check Render environment variables",
-      diagnostics,
-      fix: "Add EMAIL_USER and EMAIL_PASS to Render Dashboard → Environment"
-    });
-  }
-
-  try {
-    const testEmail = req.query.email || EMAIL_USER;
-    console.log("📧 Sending test email to:", testEmail);
-
-    const info = await transporter.sendMail({
-      from: `"Complaint Portal TEST" <${EMAIL_USER}>`,
-      to: testEmail,
-      subject: "✅ Test Email - Complaint Portal",
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2 style="color: #22c55e;">✅ Email Configuration Working!</h2>
-          <p>This is a test email from your Complaint Portal.</p>
-          <p>If you received this, email notifications are configured correctly.</p>
-          <p><strong>Time:</strong> ${new Date().toISOString()}</p>
-        </div>
-      `
-    });
-
-    console.log("📧 ✅ Test email sent!", info.messageId);
-    res.json({
-      success: true,
-      message: "Test email sent successfully",
-      messageId: info.messageId,
-      response: info.response,
-      diagnostics
-    });
-  } catch (err) {
-    console.error("📧 ❌ Test email failed:", err.message);
-    res.json({
-      success: false,
-      error: err.message,
-      code: err.code,
-      responseCode: err.responseCode,
-      diagnostics
-    });
-  }
+  
+  // Use centralized email service for testing
+  const testEmail = req.query.email || process.env.EMAIL_USER;
+  const result = await sendTestEmail(testEmail);
+  
+  res.json(result);
 });
 
 // ================= EMAIL STATUS ENDPOINT =================
 app.get("/api/email-status", (req, res) => {
+  const transporterExists = !!getTransporter();
   res.json({
-    configured: emailEnabled,
-    EMAIL_USER: EMAIL_USER ? "✅ SET" : "❌ NOT SET",
-    EMAIL_PASS: EMAIL_PASS ? "✅ SET" : "❌ NOT SET",
-    transporter: transporter ? "✅ CREATED" : "❌ NULL",
-    message: emailEnabled 
+    configured: transporterExists,
+    EMAIL_USER: process.env.EMAIL_USER ? "✅ SET" : "❌ NOT SET",
+    EMAIL_PASS: process.env.EMAIL_PASS ? "✅ SET" : "❌ NOT SET",
+    transporter: transporterExists ? "✅ CREATED" : "❌ NULL",
+    message: transporterExists 
       ? "Email is configured and ready" 
       : "Email NOT configured - add EMAIL_USER and EMAIL_PASS to Render environment variables"
   });
@@ -546,15 +426,15 @@ app.get("/api/complaints", async (req, res) => {
   }
 })();
 
-// Initialize email service
-initializeTransporter();
-
 // ================= PHASE 7: AUTH ROUTES =================
 app.use('/api/auth', initAuthRoutes(db));
 app.use('/api/auth', initPasswordResetRoutes(db));
 
 // ================= PHASE 7: ADMIN ROUTES =================
 app.use('/api/admin', initAdminRoutes(db));
+
+// ================= SUPERADMIN ROUTES =================
+app.use('/api/superadmin', initSuperadminRoutes(db));
 
 // ================= PHASE 6: ESCALATION ROUTES (Public for frontend compatibility) =================
 const { triggerEscalationCheck } = require("./services/scheduler");
@@ -606,390 +486,243 @@ app.get("/api/escalations", async (req, res) => {
 
 // ================= UPDATE COMPLAINT STATUS =================
 app.put("/api/complaints/:id", async (req, res) => {
+  let connection;
+
   try {
     const { id } = req.params;
-    const { status, changed_by } = req.body;
+    const { status } = req.body;
 
-    // Validate status
     const validStatuses = ["new", "under-review", "resolved"];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: "Invalid status" });
     }
 
-    // Get current complaint data for email
-    const [currentComplaint] = await db.promise().query(
+    // ---------- use transaction (safe) ----------
+    connection = await db.promise().getConnection();
+    await connection.beginTransaction();
+
+    const [existing] = await connection.query(
       "SELECT * FROM complaints WHERE id = ?",
       [id]
     );
 
-    if (currentComplaint.length === 0) {
+    if (existing.length === 0) {
+      await connection.rollback();
       return res.status(404).json({ error: "Complaint not found" });
     }
 
-    await db.promise().query(
+    await connection.query(
       "UPDATE complaints SET status = ? WHERE id = ?",
       [status, id]
     );
 
-    // Fetch updated complaint
-    const [updated] = await db.promise().query(
-      "SELECT * FROM complaints WHERE id = ?",
-      [id]
-    );
+    await connection.commit();
 
-    // Send status change email for under-review status
-    if (status === 'under-review' && updated[0]?.email) {
-      sendStatusChangeEmail(updated[0], status).catch(err => {
-        console.error('📧 Failed to send status change email:', err.message);
-      });
+    // ---------- fetch with users table for correct email ----------
+    const [updated] = await db.promise().query(`
+      SELECT c.*,
+             u.email AS user_email
+      FROM complaints c
+      LEFT JOIN users u ON c.user_id = u.id
+      WHERE c.id = ?
+    `, [id]);
+
+    const complaint = updated[0];
+
+    // ✅ BUG-1 FIX – correct recipient
+    const recipientEmail =
+      complaint.user_email ||
+      complaint.email ||
+      null;
+
+    let emailSent = false;
+
+    // ---------- send email only for under-review ----------
+    if (status === "under-review" && recipientEmail) {
+
+      const mailPayload = {
+        ...complaint,
+        email: recipientEmail   // force correct mail
+      };
+
+      try {
+
+        // ✅ BUG-2 FIX – await mail
+        await sendStatusChangeEmail(mailPayload, status);
+        emailSent = true;
+
+        console.log("📧 Status change mail sent to:", recipientEmail);
+
+      } catch (mailErr) {
+        console.error("📧 Status change mail failed:", mailErr.message);
+      }
     }
 
-    res.json({ message: "Status updated successfully", id, status, complaint: updated[0] });
+    res.json({
+      message: "Status updated successfully",
+      id,
+      status,
+      emailSent,
+      complaint
+    });
+
   } catch (err) {
+
+    if (connection) {
+      try { await connection.rollback(); } catch (e) {}
+    }
+
     console.error("❌ Update status error:", err);
     res.status(500).json({ error: "Failed to update status" });
+
+  } finally {
+    if (connection) connection.release();
   }
 });
+
+
 
 // ================= RESOLVE COMPLAINT (ADMIN) - TRANSACTIONAL =================
 app.put(
   "/api/complaints/:id/resolve",
   upload.single("image"),
   async (req, res) => {
+
     const id = req.params.id;
     let connection = null;
     let resolvedImageUrl = null;
-    
+
     console.log("\n========== RESOLVE COMPLAINT START ==========");
-    console.log("📥 Resolve request for ID:", id);
-    console.log("📝 Message:", req.body.resolution_message || "(empty)");
-    console.log("📷 File:", req.file ? req.file.originalname : "No file");
-    console.log("⏱️  Timestamp:", new Date().toISOString());
-    
+
     try {
       const resolution_message = req.body.resolution_message || "";
 
-      // Check if complaint exists first
       const [existing] = await db
         .promise()
         .query("SELECT * FROM complaints WHERE id = ?", [id]);
 
       if (existing.length === 0) {
-        console.log("❌ Complaint not found:", id);
         return res.status(404).json({ error: "Complaint not found" });
       }
-      
-      const originalComplaint = existing[0];
-      console.log("📧 Complaint owner email (from DB):", originalComplaint.email || "NO EMAIL");
 
-      // Upload to Cloudinary ONLY if file exists (before transaction)
+      const originalComplaint = existing[0];
+
+      // ----------------- upload image -----------------
       if (req.file && req.file.buffer) {
-        console.log("☁️ Uploading resolution image to Cloudinary...");
-        try {
-          const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
-          const result = await cloudinary.uploader.upload(base64Image, {
-            folder: "complaints/resolved",
-          });
-          resolvedImageUrl = result.secure_url;
-          console.log("✅ Cloudinary upload successful:", resolvedImageUrl);
-        } catch (uploadErr) {
-          console.error("❌ Cloudinary upload failed:", uploadErr.message);
-          throw new Error(`Image upload failed: ${uploadErr.message}`);
-        }
+        const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+        const result = await cloudinary.uploader.upload(base64Image, {
+          folder: "complaints/resolved",
+        });
+        resolvedImageUrl = result.secure_url;
       }
 
-      // Start transaction for atomic database updates
+      // ----------------- transaction -----------------
       connection = await db.promise().getConnection();
       await connection.beginTransaction();
-      console.log("🔒 Transaction started");
+
+      await connection.query(
+        `UPDATE complaints 
+         SET status='resolved',
+             resolution_message=?,
+             resolved_image_url=?,
+             resolved_at=NOW(),
+             escalation_level=0
+         WHERE id=?`,
+        [resolution_message, resolvedImageUrl, id]
+      );
 
       try {
-        // Step 1: Update complaint status, resolution message, and image URL
         await connection.query(
-          `UPDATE complaints 
-           SET status = 'resolved', 
-               resolution_message = ?, 
-               resolved_image_url = ?,
-               resolved_at = NOW(),
-               escalation_level = 0
-           WHERE id = ?`,
-          [resolution_message, resolvedImageUrl, id]
+          `INSERT INTO escalation_history
+           (complaint_id, escalation_level, reason, notified_at, created_at)
+           VALUES (?,0,?,NOW(),NOW())`,
+          [id, `Resolved: ${resolution_message.substring(0,100)}`]
         );
-        console.log("✅ Step 1: Complaint status updated to resolved");
+      } catch (e) {}
 
-        // Step 2: Insert timeline/history entry (if escalation_history table exists)
-        try {
-          await connection.query(
-            `INSERT INTO escalation_history 
-             (complaint_id, escalation_level, reason, notified_at, created_at) 
-             VALUES (?, 0, ?, NOW(), NOW())`,
-            [id, `Resolved with message: ${resolution_message.substring(0, 100)}${resolution_message.length > 100 ? '...' : ''}`]
-          );
-          console.log("✅ Step 2: Timeline entry inserted");
-        } catch (historyErr) {
-          // Table might not exist or have different schema - log but continue
-          console.log("ℹ️  Step 2: Timeline entry skipped (table may not exist):", historyErr.message);
-        }
+      await connection.commit();
 
-        // Commit transaction
-        await connection.commit();
-        console.log("✅ Transaction committed successfully");
-
-      } catch (txErr) {
-        // Rollback on any database error
-        await connection.rollback();
-        console.error("❌ Transaction rolled back due to error:", txErr.message);
-        throw txErr;
-      }
-
-      // Fetch updated complaint with all fields, JOIN with users to get email via user_id
-      const [updated] = await db
-        .promise()
-        .query(`
-          SELECT c.*, u.email AS user_email 
-          FROM complaints c 
-          LEFT JOIN users u ON c.user_id = u.id 
-          WHERE c.id = ?
-        `, [id]);
+      // ----------------- fetch fresh row with user email -----------------
+      const [updated] = await db.promise().query(`
+        SELECT c.*,
+               u.email AS user_email
+        FROM complaints c
+        LEFT JOIN users u ON c.user_id = u.id
+        WHERE c.id = ?
+      `,[id]);
 
       const resolvedComplaint = updated[0];
-      // Prefer user_id -> users.email, fallback to complaint.email for backward compatibility
-      const recipientEmail = resolvedComplaint.user_email || resolvedComplaint.email;
-      
-      console.log("\n📋 Resolved Complaint Details:");
-      console.log("   ID:", resolvedComplaint.id);
-      console.log("   User ID:", resolvedComplaint.user_id || "NONE (legacy/anonymous)");
-      console.log("   User Email (from users table):", resolvedComplaint.user_email || "NONE");
-      console.log("   Complaint Email (legacy):", resolvedComplaint.email || "NONE");
-      console.log("   Final Recipient:", recipientEmail || "NO EMAIL");
-      console.log("   Problem Image:", resolvedComplaint.problem_image_url || "NONE");
-      console.log("   Resolution Image:", resolvedComplaint.resolved_image_url || "NONE");
-      console.log("   Resolution Message:", resolvedComplaint.resolution_message ? "Present" : "NONE");
 
-      // Send email notification (NON-BLOCKING - don't let email failure break the API)
+      // ✅ BUG-1 FIX :
+      // always prefer users.email, fallback to complaints.email
+      const recipientEmail =
+        resolvedComplaint.user_email ||
+        resolvedComplaint.email ||
+        null;
+
+      console.log("📧 Final recipient email :", recipientEmail);
+
+      // ----------------- send mail (SAFE + awaited) -----------------
       let emailSent = false;
-      if (recipientEmail) {
-        console.log("\n📧 Sending resolution email to:", recipientEmail);
-        // Fire and forget - don't await to prevent API failure if email fails
-        const complaintWithEmail = { ...resolvedComplaint, email: recipientEmail };
-        sendResolutionEmail(complaintWithEmail)
-          .then((result) => {
-            console.log("📧 Email result:", result ? "SENT ✅" : "FAILED/SKIPPED ⚠️");
-          })
-          .catch((err) => {
-            console.error("📧 Email error (non-blocking):", err.message);
-          });
-        emailSent = true; // Indicates email was attempted (not necessarily delivered)
-      } else {
-        console.log("📧 Skipping email - no email address found for complaint owner");
-      }
 
-      console.log("========== RESOLVE COMPLAINT END (SUCCESS) ==========\n");
+      if (recipientEmail) {
+
+        const mailPayload = {
+          ...resolvedComplaint,
+
+          // ✅ very important – force correct receiver
+          email: recipientEmail,
+
+          // ✅ make sure both images + message go to mail template
+          problem_image_url: resolvedComplaint.problem_image_url || null,
+          resolved_image_url: resolvedComplaint.resolved_image_url || null,
+          resolution_message: resolvedComplaint.resolution_message || ""
+        };
+
+        try {
+
+          // ✅ BUG-2 FIX :
+          // await mail send so production process doesn't skip it
+          emailSent = await sendResolutionEmailService(mailPayload);
+
+          console.log("📧 Resolution mail sent :", emailSent);
+
+        } catch (mailErr) {
+          console.error("📧 Resolution mail failed :", mailErr.message);
+        }
+
+      } else {
+        console.log("📧 No recipient email found – skipping mail");
+      }
 
       res.json({
         success: true,
         message: "Complaint resolved successfully",
-        emailSent: emailSent,
-        complaint: resolvedComplaint,
+        emailSent,
+        complaint: resolvedComplaint
       });
-      
+
     } catch (err) {
-      // Enhanced error logging for production debugging
-      console.error("\n❌ ========== RESOLVE COMPLAINT ERROR ==========");
-      console.error("❌ Complaint ID:", id);
-      console.error("❌ Error Type:", err.name || 'Unknown');
-      console.error("❌ Error Message:", err.message);
-      console.error("❌ Has File:", !!req.file);
-      if (err.http_code) console.error("❌ Cloudinary HTTP Code:", err.http_code);
-      console.error("❌ Stack:", err.stack);
-      console.error("❌ =============================================\n");
-      
-      // Categorize error for user-friendly response
-      let statusCode = 500;
-      let errorMessage = "Failed to resolve complaint";
-      
-      if (err.message?.includes('Image upload') || err.http_code === 401) {
-        errorMessage = "Image upload failed - please try again or resolve without image";
-      } else if (err.code === 'LIMIT_FILE_SIZE') {
-        statusCode = 400;
-        errorMessage = "File too large (max 5MB)";
-      } else if (err.code?.startsWith('ER_')) {
-        errorMessage = "Database error occurred - please try again";
-      }
-      
-      res.status(statusCode).json({ 
-        success: false,
-        error: errorMessage, 
-        details: process.env.NODE_ENV === 'development' ? err.message : undefined
-      });
-    } finally {
-      // Always release connection back to pool
+
       if (connection) {
-        connection.release();
-        console.log("🔓 Database connection released");
+        try { await connection.rollback(); } catch(e){}
       }
+
+      console.error("❌ Resolve error :", err);
+
+      res.status(500).json({
+        success:false,
+        error:"Failed to resolve complaint"
+      });
+
+    } finally {
+      if (connection) connection.release();
     }
   }
 );
 
 // Also support POST for backward compatibility (uses same transactional logic)
-app.post(
-  "/api/complaints/:id/resolve",
-  upload.single("image"),
-  async (req, res) => {
-    const id = req.params.id;
-    let connection = null;
-    let resolvedImageUrl = null;
-    
-    console.log("\n========== RESOLVE COMPLAINT (POST) START ==========");
-    console.log("📥 Resolve request for ID:", id);
-    console.log("📝 Message:", req.body.resolution_message || "(empty)");
-    console.log("📷 File:", req.file ? req.file.originalname : "No file");
-    console.log("⏱️  Timestamp:", new Date().toISOString());
-    
-    try {
-      const resolution_message = req.body.resolution_message || "";
 
-      // Check if complaint exists
-      const [existing] = await db
-        .promise()
-        .query("SELECT * FROM complaints WHERE id = ?", [id]);
-
-      if (existing.length === 0) {
-        return res.status(404).json({ error: "Complaint not found" });
-      }
-
-      const originalComplaint = existing[0];
-      console.log("📧 Complaint owner email (from DB):", originalComplaint.email || "NO EMAIL");
-
-      // Upload to Cloudinary ONLY if file exists (before transaction)
-      if (req.file && req.file.buffer) {
-        console.log("☁️ Uploading resolution image to Cloudinary...");
-        try {
-          const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
-          const result = await cloudinary.uploader.upload(base64Image, {
-            folder: "complaints/resolved",
-          });
-          resolvedImageUrl = result.secure_url;
-          console.log("✅ Cloudinary upload successful:", resolvedImageUrl);
-        } catch (uploadErr) {
-          console.error("❌ Cloudinary upload failed:", uploadErr.message);
-          throw new Error(`Image upload failed: ${uploadErr.message}`);
-        }
-      }
-
-      // Start transaction for atomic database updates
-      connection = await db.promise().getConnection();
-      await connection.beginTransaction();
-      console.log("🔐 Transaction started");
-
-      try {
-        // Update complaint status
-        await connection.query(
-          `UPDATE complaints 
-           SET status = 'resolved', 
-               resolution_message = ?, 
-               resolved_image_url = ?,
-               resolved_at = NOW(),
-               escalation_level = 0
-           WHERE id = ?`,
-          [resolution_message, resolvedImageUrl, id]
-        );
-        console.log("✅ Complaint updated to resolved");
-
-        // Insert timeline entry
-        try {
-          await connection.query(
-            `INSERT INTO escalation_history 
-             (complaint_id, escalation_level, reason, notified_at, created_at) 
-             VALUES (?, 0, ?, NOW(), NOW())`,
-            [id, `Resolved: ${resolution_message.substring(0, 100)}${resolution_message.length > 100 ? '...' : ''}`]
-          );
-          console.log("✅ Timeline entry added");
-        } catch (historyErr) {
-          console.log("ℹ️  Timeline entry skipped:", historyErr.message);
-        }
-
-        await connection.commit();
-        console.log("✅ Transaction committed");
-
-      } catch (txErr) {
-        await connection.rollback();
-        console.error("❌ Transaction rolled back:", txErr.message);
-        throw txErr;
-      }
-
-      // Fetch updated complaint with all fields, JOIN with users to get email via user_id
-      const [updated] = await db
-        .promise()
-        .query(`
-          SELECT c.*, u.email AS user_email 
-          FROM complaints c 
-          LEFT JOIN users u ON c.user_id = u.id 
-          WHERE c.id = ?
-        `, [id]);
-
-      const resolvedComplaint = updated[0];
-      // Prefer user_id -> users.email, fallback to complaint.email for backward compatibility
-      const recipientEmail = resolvedComplaint.user_email || resolvedComplaint.email;
-      
-      console.log("📧 User Email (from users table):", resolvedComplaint.user_email || "NONE");
-      console.log("📧 Final Recipient:", recipientEmail || "NO EMAIL");
-
-      // Send email notification (NON-BLOCKING - don't let email failure break the API)
-      let emailSent = false;
-      if (recipientEmail) {
-        console.log("📧 Sending resolution email to:", recipientEmail);
-        // Fire and forget - don't await to prevent API failure if email fails
-        const complaintWithEmail = { ...resolvedComplaint, email: recipientEmail };
-        sendResolutionEmail(complaintWithEmail)
-          .then((result) => {
-            console.log("📧 Email result:", result ? "SENT ✅" : "FAILED ⚠️");
-          })
-          .catch((err) => {
-            console.error("📧 Email error (non-blocking):", err.message);
-          });
-        emailSent = true; // Indicates email was attempted
-      } else {
-        console.log("📧 Skipping email - no email address found for complaint owner");
-      }
-
-      console.log("========== RESOLVE COMPLAINT (POST) END ==========\n");
-
-      res.json({
-        success: true,
-        message: "Complaint resolved successfully",
-        emailSent: emailSent,
-        complaint: resolvedComplaint,
-      });
-      
-    } catch (err) {
-      console.error("\n❌ ========== RESOLVE ERROR (POST) ==========");
-      console.error("❌ Complaint ID:", id);
-      console.error("❌ Error:", err.message);
-      console.error("❌ ==========================================\n");
-      
-      let statusCode = 500;
-      let errorMessage = "Failed to resolve complaint";
-      
-      if (err.message?.includes('Image upload')) {
-        errorMessage = "Image upload failed - please try again";
-      } else if (err.code === 'LIMIT_FILE_SIZE') {
-        statusCode = 400;
-        errorMessage = "File too large (max 5MB)";
-      }
-      
-      res.status(statusCode).json({ 
-        success: false,
-        error: errorMessage
-      });
-    } finally {
-      if (connection) {
-        connection.release();
-      }
-    }
-  }
-);
 
 // ================= GET COMPLAINT HISTORY =================
 app.get("/api/complaints/:id/history", async (req, res) => {
@@ -1257,12 +990,24 @@ app.put("/api/admin/complaints/:id/resolve", authenticate, requireAdmin, upload.
     console.log("   - Resolution Message:", resolvedComplaint?.resolution_message ? "Present" : "NONE");
     console.log("   - Recipient Email:", recipientEmail || "NONE");
 
-    // Send resolution email with all fields
+    // Send resolution email with complete payload
     let emailResult = false;
     if (recipientEmail) {
-      const complaintWithEmail = { ...resolvedComplaint, email: recipientEmail };
-      emailResult = await sendResolutionEmail(complaintWithEmail);
-      console.log("📧 [PRODUCTION LOG] Resolution email sent:", emailResult ? "SUCCESS" : "FAILED");
+      const mailPayload = {
+        ...resolvedComplaint,
+        email: recipientEmail,
+        problem_image_url: resolvedComplaint.problem_image_url || null,
+        resolved_image_url: resolvedComplaint.resolved_image_url || null,
+        resolution_message: resolvedComplaint.resolution_message || ""
+      };
+
+      try {
+        emailResult = await sendResolutionEmailService(mailPayload);
+        console.log("📧 [PRODUCTION LOG] Resolution email sent:", emailResult ? "SUCCESS" : "FAILED");
+      } catch (mailErr) {
+        console.error("📧 Resolution email failed:", mailErr.message);
+        emailResult = false;
+      }
     } else {
       console.log("📧 Skipping email - no recipient email found");
     }

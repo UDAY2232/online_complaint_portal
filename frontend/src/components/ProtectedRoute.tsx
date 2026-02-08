@@ -3,12 +3,17 @@ import { useEffect, useState } from "react";
 
 interface ProtectedRouteProps {
   children: JSX.Element;
-  role?: "user" | "admin";
+  role?: "user" | "admin" | "superadmin";
 }
 
 // Helper to check if user has admin-level permissions
 const isAdminRole = (role: string | null): boolean => {
   return role === "admin" || role === "superadmin";
+};
+
+// Helper to check if user is superadmin
+const isSuperadminRole = (role: string | null): boolean => {
+  return role === "superadmin";
 };
 
 // Helper to clear all auth data - use clear() to ensure no stale data
@@ -44,7 +49,16 @@ const ProtectedRoute = ({ children, role }: ProtectedRouteProps) => {
 
   // Check role-based access
   if (role) {
-    if (role === "admin") {
+    if (role === "superadmin") {
+      // Superadmin routes - only superadmin can access
+      if (!isSuperadminRole(userRole)) {
+        console.warn("Access denied: User tried to access superadmin route");
+        if (isAdminRole(userRole)) {
+          return <Navigate to="/admin/dashboard" replace />;
+        }
+        return <Navigate to="/user/dashboard" replace />;
+      }
+    } else if (role === "admin") {
       // Admin routes - only admin and superadmin can access
       if (!isAdminRole(userRole)) {
         console.warn("Access denied: User tried to access admin route");

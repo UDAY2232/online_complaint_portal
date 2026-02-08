@@ -16,7 +16,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const router = express.Router();
 
-const { sendPasswordResetEmail } = require('../services/emailService');
+const { sendPasswordResetEmail, getFrontendUrl } = require('../services/emailService');
 const { passwordResetLimiter } = require('../middleware/security');
 
 // Token expiry time in minutes
@@ -154,46 +154,32 @@ const initPasswordResetRoutes = (db) => {
       );
       console.log('📧 Reset token stored (expires in', TOKEN_EXPIRY_MINUTES, 'minutes)');
 
-      // Build reset URL using FRONTEND_URL environment variable
-      // Support both FRONTEND_URL and FRONTEND_BASE_URL for compatibility
-      const frontendUrl = process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL;
+      // Build reset URL using centralized FRONTEND_URL from emailService
+      const frontendUrl = getFrontendUrl();
       
-      // CRITICAL: Do NOT generate localhost links in production
+      // CRITICAL: Block if FRONTEND_URL is not configured
       if (!frontendUrl) {
-        console.error('📧 ❌ CRITICAL: FRONTEND_URL environment variable is NOT SET!');
+        console.error('📧 ❌ CRITICAL: FRONTEND_URL is NOT SET!');
         console.error('📧 ❌ Password reset emails CANNOT be sent without FRONTEND_URL');
-        console.error('📧 ❌ Please set FRONTEND_URL or FRONTEND_BASE_URL in Render environment variables');
+        console.error('📧 ❌ Set FRONTEND_URL in Render environment variables');
         console.error('📧 ❌ Example: FRONTEND_URL=https://your-app.vercel.app');
         // Still return success to user (don't leak internal errors)
         return res.json(successResponse);
       }
       
-      // CRITICAL: Block localhost URLs in production - they will never work on user devices
+      // CRITICAL: Block localhost URLs in production
       const isProduction = process.env.NODE_ENV === 'production';
-      const isLocalhost = frontendUrl.includes('localhost') || frontendUrl.includes('127.0.0.1');
-      
-      if (isProduction && isLocalhost) {
+      if (isProduction && (frontendUrl.includes('localhost') || frontendUrl.includes('127.0.0.1'))) {
         console.error('📧 ❌ CRITICAL: FRONTEND_URL contains localhost in production!');
         console.error('📧 ❌ Current FRONTEND_URL:', frontendUrl);
-        console.error('📧 ❌ Reset links with localhost will NOT work on user devices!');
-        console.error('📧 ❌ BLOCKING email send - fix FRONTEND_URL in Render environment variables');
-        console.error('📧 ❌ Example: FRONTEND_URL=https://your-app.vercel.app');
-        // Still return success to user (don't leak internal errors)
+        console.error('📧 ❌ Fix FRONTEND_URL in Render environment variables');
         return res.json(successResponse);
       }
       
-      // Additional warning for non-HTTPS in production
-      if (isProduction && !frontendUrl.startsWith('https://')) {
-        console.warn('📧 ⚠️ WARNING: FRONTEND_URL is not HTTPS in production');
-        console.warn('📧 ⚠️ Current FRONTEND_URL:', frontendUrl);
-      }
-      
-      // Build reset URL with token as query parameter
-      // URL format: ${FRONTEND_URL}/reset-password?token=XXX
+      // Build reset URL: ${FRONTEND_URL}/reset-password?token=XXX
       const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
       
-      console.log('📧 Reset URL generated');
-      console.log('📧 Frontend URL:', frontendUrl);
+      console.log('📧 Reset URL generated using FRONTEND_URL:', frontendUrl);
       console.log('📧 Token expiry:', expiresAt.toISOString());
       
       // Send reset email to the user's actual email from database

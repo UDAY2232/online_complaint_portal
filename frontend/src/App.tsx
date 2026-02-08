@@ -21,6 +21,7 @@ import AdminUsers from "./pages/AdminUsers";
 import AdminReports from "./pages/AdminReports";
 import AdminSettings from "./pages/AdminSettings";
 import EscalationHistory from "./pages/EscalationHistory";
+import SuperAdminDashboard from "./pages/SuperAdminDashboard";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 
@@ -121,6 +122,17 @@ const App = () => (
               </ProtectedRoute>
             }
           />
+
+          {/* Superadmin Routes */}
+          <Route
+            path="/superadmin/dashboard"
+            element={
+              <ProtectedRoute role="superadmin">
+                <SuperAdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+
           {/* Password Reset Routes */}
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/reset-password" element={<ResetPassword />} />
