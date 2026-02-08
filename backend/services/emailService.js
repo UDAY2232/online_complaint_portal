@@ -13,17 +13,22 @@ const nodemailer = require('nodemailer');
 let resendClient = null;
 const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const USE_RESEND = !!RESEND_API_KEY;
+let resendInitError = null;
+
+console.log('📧 [STARTUP] RESEND_API_KEY present:', !!RESEND_API_KEY);
 
 if (USE_RESEND) {
   try {
     const { Resend } = require('resend');
     resendClient = new Resend(RESEND_API_KEY);
-    console.log('📧 ✅ Resend API initialized (HTTP-based email)');
+    console.log('📧 ✅ Resend API initialized successfully');
   } catch (err) {
+    resendInitError = err.message;
     console.error('📧 ❌ Failed to initialize Resend:', err.message);
+    console.error('📧 ❌ Make sure resend package is installed: npm install resend');
   }
 } else {
-  console.log('📧 ⚠️ RESEND_API_KEY not set - falling back to SMTP');
+  console.log('📧 ⚠️ RESEND_API_KEY not set - will use SMTP only');
 }
 
 let transporter = null;
@@ -150,6 +155,11 @@ const sendEmailUnified = async (options) => {
   const { to, subject, html, from } = options;
   const fromEmail = from || process.env.EMAIL_USER || 'noreply@complaint-portal.com';
   
+  console.log('📧 [UNIFIED] Starting email send...');
+  console.log('📧 [UNIFIED] USE_RESEND:', USE_RESEND);
+  console.log('📧 [UNIFIED] resendClient exists:', !!resendClient);
+  console.log('📧 [UNIFIED] resendInitError:', resendInitError || 'none');
+  
   // TRY RESEND FIRST (for production on Render)
   if (USE_RESEND && resendClient) {
     try {
@@ -165,16 +175,19 @@ const sendEmailUnified = async (options) => {
       });
       
       if (error) {
-        console.error('📧 ❌ [RESEND] API Error:', error);
-        throw new Error(error.message || 'Resend API error');
+        console.error('📧 ❌ [RESEND] API Error:', JSON.stringify(error));
+        throw new Error(error.message || JSON.stringify(error) || 'Resend API error');
       }
       
       console.log('📧 ✅ [RESEND] Email sent! ID:', data?.id);
       return { success: true, messageId: data?.id, method: 'resend' };
     } catch (err) {
       console.error('📧 ❌ [RESEND] Failed:', err.message);
+      console.error('📧 ❌ [RESEND] Full error:', err);
       // Fall through to nodemailer attempt
     }
+  } else {
+    console.log('📧 [UNIFIED] Skipping Resend - USE_RESEND:', USE_RESEND, 'resendClient:', !!resendClient);
   }
   
   // FALLBACK TO NODEMAILER (for local development)
@@ -703,7 +716,9 @@ const sendTestEmail = async (recipientEmail) => {
   console.log('\n========== TEST EMAIL START ==========');
   console.log('📧 [TEST] Recipient:', recipientEmail);
   console.log('📧 [TEST] RESEND_API_KEY:', RESEND_API_KEY ? 'SET' : 'NOT SET');
-  console.log('📧 [TEST] Resend client:', !!resendClient);
+  console.log('📧 [TEST] USE_RESEND:', USE_RESEND);
+  console.log('📧 [TEST] Resend client exists:', !!resendClient);
+  console.log('📧 [TEST] Resend init error:', resendInitError || 'none');
   console.log('📧 [TEST] EMAIL_USER:', process.env.EMAIL_USER ? process.env.EMAIL_USER.substring(0, 5) + '***' : 'NOT SET');
 
   const testTo = recipientEmail || process.env.EMAIL_USER || 'test@example.com';
@@ -714,7 +729,7 @@ const sendTestEmail = async (recipientEmail) => {
       <p>This test email was sent from your Complaint Portal.</p>
       <p><strong>Time:</strong> ${new Date().toISOString()}</p>
       <p><strong>Environment:</strong> ${process.env.NODE_ENV || 'development'}</p>
-      <p><strong>Method:</strong> ${USE_RESEND ? 'Resend API' : 'SMTP'}</p>
+      <p><strong>Method:</strong> ${USE_RESEND && resendClient ? 'Resend API' : 'SMTP'}</p>
       <p><strong>Sent To:</strong> ${testTo}</p>
     </div>
   `;
@@ -733,6 +748,8 @@ const sendTestEmail = async (recipientEmail) => {
     recipient: testTo,
     details: {
       RESEND_API_KEY_SET: !!RESEND_API_KEY,
+      RESEND_CLIENT_EXISTS: !!resendClient,
+      RESEND_INIT_ERROR: resendInitError || null,
       EMAIL_USER_SET: !!process.env.EMAIL_USER,
       EMAIL_PASS_SET: !!process.env.EMAIL_PASS,
     }
