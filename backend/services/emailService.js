@@ -717,10 +717,10 @@ const sendStatusChangeEmail = async (complaint, newStatus) => {
 const sendTestEmail = async (recipientEmail) => {
   console.log('\n========== TEST EMAIL START ==========');
   console.log('📧 [TEST] Recipient:', recipientEmail);
-  console.log('📧 [TEST] RESEND_API_KEY:', RESEND_API_KEY ? 'SET' : 'NOT SET');
-  console.log('📧 [TEST] USE_RESEND:', USE_RESEND);
-  console.log('📧 [TEST] Resend client exists:', !!resendClient);
-  console.log('📧 [TEST] Resend init error:', resendInitError || 'none');
+  console.log('📧 [TEST] SENDGRID_API_KEY:', SENDGRID_API_KEY ? 'SET' : 'NOT SET');
+  console.log('📧 [TEST] USE_SENDGRID:', USE_SENDGRID);
+  console.log('📧 [TEST] SendGrid client exists:', !!sgMail);
+  console.log('📧 [TEST] SendGrid init error:', sendgridInitError || 'none');
   console.log('📧 [TEST] EMAIL_USER:', process.env.EMAIL_USER ? process.env.EMAIL_USER.substring(0, 5) + '***' : 'NOT SET');
 
   const testTo = recipientEmail || process.env.EMAIL_USER || 'test@example.com';
@@ -731,31 +731,48 @@ const sendTestEmail = async (recipientEmail) => {
       <p>This test email was sent from your Complaint Portal.</p>
       <p><strong>Time:</strong> ${new Date().toISOString()}</p>
       <p><strong>Environment:</strong> ${process.env.NODE_ENV || 'development'}</p>
-      <p><strong>Method:</strong> ${USE_RESEND && resendClient ? 'Resend API' : 'SMTP'}</p>
+      <p><strong>Method:</strong> ${USE_SENDGRID && sgMail ? 'SendGrid API' : 'SMTP'}</p>
       <p><strong>Sent To:</strong> ${testTo}</p>
     </div>
   `;
 
-  const result = await sendEmailUnified({
-    to: testTo,
-    subject: '✅ Test Email - Complaint Portal (' + new Date().toISOString() + ')',
-    html: html
-  });
+  try {
+    const result = await sendEmailUnified({
+      to: testTo,
+      subject: '✅ Test Email - Complaint Portal (' + new Date().toISOString() + ')',
+      html: html
+    });
 
-  console.log('📧 [TEST] Result:', result);
-  console.log('========== TEST EMAIL END ==========\n');
-  
-  return {
-    ...result,
-    recipient: testTo,
-    details: {
-      RESEND_API_KEY_SET: !!RESEND_API_KEY,
-      RESEND_CLIENT_EXISTS: !!resendClient,
-      RESEND_INIT_ERROR: resendInitError || null,
-      EMAIL_USER_SET: !!process.env.EMAIL_USER,
-      EMAIL_PASS_SET: !!process.env.EMAIL_PASS,
-    }
-  };
+    console.log('📧 [TEST] Result:', result);
+    console.log('========== TEST EMAIL END ==========\n');
+    
+    return {
+      ...result,
+      recipient: testTo,
+      details: {
+        SENDGRID_API_KEY_SET: !!SENDGRID_API_KEY,
+        SENDGRID_CLIENT_EXISTS: !!sgMail,
+        SENDGRID_INIT_ERROR: sendgridInitError || null,
+        EMAIL_USER_SET: !!process.env.EMAIL_USER,
+        EMAIL_PASS_SET: !!process.env.EMAIL_PASS,
+      }
+    };
+  } catch (err) {
+    console.error('📧 [TEST] Error:', err.message);
+    console.log('========== TEST EMAIL END (ERROR) ==========\n');
+    return {
+      success: false,
+      error: err.message,
+      recipient: testTo,
+      details: {
+        SENDGRID_API_KEY_SET: !!SENDGRID_API_KEY,
+        SENDGRID_CLIENT_EXISTS: !!sgMail,
+        SENDGRID_INIT_ERROR: sendgridInitError || null,
+        EMAIL_USER_SET: !!process.env.EMAIL_USER,
+        EMAIL_PASS_SET: !!process.env.EMAIL_PASS,
+      }
+    };
+  }
 };
 
 /**
