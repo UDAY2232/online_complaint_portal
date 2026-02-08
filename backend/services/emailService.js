@@ -8,30 +8,35 @@
  */
 
 const nodemailer = require('nodemailer');
+const axios = require('axios');
 
-// ================= CLOUDINARY IMAGE OPTIMIZER =================
+// ================= IMAGE FETCH HELPER =================
 /**
- * Optimize Cloudinary image URL for email - smaller size, better quality
- * Cloudinary URLs are trusted by Gmail and other email clients
- * @param {string} imageUrl - Original Cloudinary URL
- * @returns {string} - Optimized URL with transformations
+ * Fetch image from URL and return as base64 for CID attachment
+ * @param {string} imageUrl - The URL of the image
+ * @returns {object|null} - { base64, contentType, filename } or null
  */
-const optimizeCloudinaryUrl = (imageUrl) => {
+const fetchImageForAttachment = async (imageUrl) => {
   if (!imageUrl) return null;
   
-  // Check if it's a Cloudinary URL
-  if (imageUrl.includes('res.cloudinary.com') && imageUrl.includes('/upload/')) {
-    // Add transformations: width 400px, quality 80%, auto format
-    const optimizedUrl = imageUrl.replace(
-      '/upload/',
-      '/upload/w_400,q_80,f_auto/'
-    );
-    console.log('📷 Optimized Cloudinary URL:', optimizedUrl.substring(0, 80) + '...');
-    return optimizedUrl;
+  try {
+    console.log('📷 Fetching image for CID attachment:', imageUrl.substring(0, 60) + '...');
+    const response = await axios.get(imageUrl, {
+      responseType: 'arraybuffer',
+      timeout: 20000,
+      headers: { 'Accept': 'image/*' }
+    });
+    
+    const contentType = response.headers['content-type'] || 'image/jpeg';
+    const base64 = Buffer.from(response.data, 'binary').toString('base64');
+    const extension = contentType.includes('png') ? 'png' : 'jpg';
+    
+    console.log('📷 ✅ Image fetched, size:', Math.round(base64.length / 1024), 'KB');
+    return { base64, contentType, filename: `image.${extension}` };
+  } catch (error) {
+    console.error('📷 ❌ Failed to fetch image:', error.message);
+    return null;
   }
-  
-  // Return original if not Cloudinary
-  return imageUrl;
 };
 
 // ================= SENDGRID API SETUP =================
@@ -173,25 +178,23 @@ const getAdminEmail = () => process.env.ADMIN_EMAIL || null;
 
 /**
  * Unified Email Sender - Uses SendGrid API (production) or Nodemailer (development)
- * @param {object} options - { to, subject, html, from }
+ * @param {object} options - { to, subject, html, from, attachments }
+ * attachments format: [{ content: base64, filename: 'img.jpg', type: 'image/jpeg', content_id: 'cid_name' }]
  * @returns {object} - { success, messageId, error }
  */
 const sendEmailUnified = async (options) => {
-  const { to, subject, html, from } = options;
+  const { to, subject, html, from, attachments = [] } = options;
   const fromEmail = from || process.env.EMAIL_USER || 'noreply@complaint-portal.com';
   
   console.log('📧 [UNIFIED] Starting email send...');
   console.log('📧 [UNIFIED] USE_SENDGRID:', USE_SENDGRID);
-  console.log('📧 [UNIFIED] sgMail exists:', !!sgMail);
-  console.log('📧 [UNIFIED] sendgridInitError:', sendgridInitError || 'none');
+  console.log('📧 [UNIFIED] Attachments:', attachments.length);
   
   // TRY SENDGRID FIRST (for production on Render)
   if (USE_SENDGRID && sgMail) {
     try {
       console.log('📧 [SENDGRID] Sending via SendGrid API...');
       console.log('📧 [SENDGRID] To:', to);
-      console.log('📧 [SENDGRID] Subject:', subject);
-      console.log('📧 [SENDGRID] From:', fromEmail);
       
       const msg = {
         to: to,
@@ -202,28 +205,36 @@ const sendEmailUnified = async (options) => {
         replyTo: fromEmail,
         subject: subject,
         html: html,
-        text: html.replace(/<[^>]*>/g, ''), // Plain text version for better deliverability
+        text: html.replace(/<[^>]*>/g, ''),
         trackingSettings: {
           clickTracking: { enable: false },
           openTracking: { enable: false }
         }
       };
       
+      // Add CID attachments for inline images
+      if (attachments.length > 0) {
+        msg.attachments = attachments.map(att => ({
+          content: att.content,
+          filename: att.filename,
+          type: att.type,
+          disposition: 'inline',
+          content_id: att.content_id
+        }));
+        console.log('📧 [SENDGRID] Added', attachments.length, 'inline attachments');
+      }
+      
       const response = await sgMail.send(msg);
       const messageId = response[0]?.headers?.['x-message-id'] || 'sendgrid-' + Date.now();
       
       console.log('📧 ✅ [SENDGRID] Email sent! Status:', response[0]?.statusCode);
-      console.log('📧 ✅ [SENDGRID] Message ID:', messageId);
       return { success: true, messageId: messageId, method: 'sendgrid' };
     } catch (err) {
       console.error('📧 ❌ [SENDGRID] Failed:', err.message);
       if (err.response) {
         console.error('📧 ❌ [SENDGRID] Response body:', JSON.stringify(err.response.body));
       }
-      // Fall through to nodemailer attempt
     }
-  } else {
-    console.log('📧 [UNIFIED] Skipping SendGrid - USE_SENDGRID:', USE_SENDGRID, 'sgMail:', !!sgMail);
   }
   
   // FALLBACK TO NODEMAILER (for local development)
@@ -234,12 +245,26 @@ const sendEmailUnified = async (options) => {
   if (transporter) {
     try {
       console.log('📧 [SMTP] Sending via Nodemailer...');
-      const info = await transporter.sendMail({
+      
+      const mailOptions = {
         from: `"Complaint Portal" <${fromEmail}>`,
         to: to,
         subject: subject,
         html: html,
-      });
+      };
+      
+      // Add CID attachments for Nodemailer
+      if (attachments.length > 0) {
+        mailOptions.attachments = attachments.map(att => ({
+          filename: att.filename,
+          content: att.content,
+          encoding: 'base64',
+          cid: att.content_id,
+          contentType: att.type
+        }));
+      }
+      
+      const info = await transporter.sendMail(mailOptions);
       console.log('📧 ✅ [SMTP] Email sent! ID:', info.messageId);
       return { success: true, messageId: info.messageId, method: 'smtp' };
     } catch (err) {
@@ -324,11 +349,10 @@ const sendEscalationEmail = async (complaint, hoursOverdue) => {
   }
 
   try {
-    const problemImageUrl = optimizeCloudinaryUrl(complaint.problem_image_url);
-    const problemImageSection = problemImageUrl
+    const problemImageSection = complaint.problem_image_url
       ? `<p><strong>Problem Image:</strong></p>
          <a href="${complaint.problem_image_url}" target="_blank">
-           <img src="${problemImageUrl}" alt="Problem Image" width="400" height="300" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #ef4444;" />
+           <img src="${complaint.problem_image_url}" alt="Problem Image" width="400" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #ef4444;" />
          </a>`
       : '<p><em>No image attached</em></p>';
 
@@ -390,51 +414,62 @@ const sendEscalationEmail = async (complaint, hoursOverdue) => {
 };
 
 /**
- * Send Resolution Email to User (Enhanced version)
+ * Send Resolution Email to User (Enhanced version with CID inline images)
  * @param {object} complaint - Complaint object (must have .email resolved from users table)
  */
 const sendResolutionEmail = async (complaint) => {
   console.log('\n📧 ========== RESOLUTION EMAIL START ==========');
-  console.log('📧 [RESOLUTION] Email type: COMPLAINT_RESOLVED');
   console.log('📧 [RESOLUTION] Complaint ID:', complaint?.id);
-  console.log('📧 [RESOLUTION] Recipient email:', complaint?.email || 'NONE');
-  console.log('📧 [RESOLUTION] User ID:', complaint?.user_id || 'NONE');
-  console.log('📧 [RESOLUTION] problem_image_url:', complaint?.problem_image_url || 'NONE');
-  console.log('📧 [RESOLUTION] resolved_image_url:', complaint?.resolved_image_url || 'NONE');
-  console.log('📧 [RESOLUTION] resolution_message:', complaint?.resolution_message ? 'Present' : 'NONE');
+  console.log('📧 [RESOLUTION] Recipient:', complaint?.email || 'NONE');
+  console.log('📧 [RESOLUTION] problem_image_url:', complaint?.problem_image_url ? 'YES' : 'NONE');
+  console.log('📧 [RESOLUTION] resolved_image_url:', complaint?.resolved_image_url ? 'YES' : 'NONE');
 
   if (!complaint.email) {
-    console.error('📧 ❌ [RESOLUTION] No recipient email - cannot send');
-    console.error('📧 ❌ [RESOLUTION] Complaint may be anonymous or email not resolved from users table');
-    console.log('📧 ========== RESOLUTION EMAIL END (SKIPPED) ==========\n');
+    console.error('📧 ❌ [RESOLUTION] No recipient email');
     return false;
   }
 
   try {
-    // Use optimized Cloudinary URLs (smaller, trusted by email clients)
-    console.log('📧 [RESOLUTION] Optimizing image URLs for email...');
-    
-    const problemImageUrl = optimizeCloudinaryUrl(complaint.problem_image_url);
-    const resolvedImageUrl = optimizeCloudinaryUrl(complaint.resolved_image_url);
+    // Fetch images for CID attachment (inline embedding)
+    const attachments = [];
+    let problemImageSection = '';
+    let resolvedImageSection = '';
 
-    // Build image sections with direct Cloudinary URLs (Gmail trusts Cloudinary)
-    const problemImageSection = problemImageUrl
-      ? `<div style="margin: 20px 0;">
-           <h3 style="color: #dc2626;">❌ BEFORE (User Uploaded Problem):</h3>
-           <a href="${complaint.problem_image_url}" target="_blank">
-             <img src="${problemImageUrl}" alt="Problem Image" width="400" height="300" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #ef4444;" />
-           </a>
-         </div>`
-      : '';
+    // Fetch problem image
+    if (complaint.problem_image_url) {
+      const problemImg = await fetchImageForAttachment(complaint.problem_image_url);
+      if (problemImg) {
+        attachments.push({
+          content: problemImg.base64,
+          filename: 'problem_image.jpg',
+          type: problemImg.contentType,
+          content_id: 'problem_image'
+        });
+        problemImageSection = `
+          <div style="margin: 20px 0;">
+            <h3 style="color: #dc2626; margin-bottom: 10px;">❌ BEFORE (User Reported Problem):</h3>
+            <img src="cid:problem_image" alt="Problem Image" width="400" style="display: block; max-width: 100%; height: auto; border-radius: 8px; border: 3px solid #ef4444;" />
+          </div>`;
+      }
+    }
 
-    const resolvedImageSection = resolvedImageUrl
-      ? `<div style="margin: 20px 0;">
-           <h3 style="color: #22c55e;">✅ AFTER (Admin Resolution):</h3>
-           <a href="${complaint.resolved_image_url}" target="_blank">
-             <img src="${resolvedImageUrl}" alt="Resolution Image" width="400" height="300" style="display: block; max-width: 400px; width: 100%; height: auto; border-radius: 8px; border: 2px solid #22c55e;" />
-           </a>
-         </div>`
-      : '';
+    // Fetch resolved image
+    if (complaint.resolved_image_url) {
+      const resolvedImg = await fetchImageForAttachment(complaint.resolved_image_url);
+      if (resolvedImg) {
+        attachments.push({
+          content: resolvedImg.base64,
+          filename: 'resolution_image.jpg',
+          type: resolvedImg.contentType,
+          content_id: 'resolution_image'
+        });
+        resolvedImageSection = `
+          <div style="margin: 20px 0;">
+            <h3 style="color: #22c55e; margin-bottom: 10px;">✅ AFTER (Admin Resolution):</h3>
+            <img src="cid:resolution_image" alt="Resolution Image" width="400" style="display: block; max-width: 100%; height: auto; border-radius: 8px; border: 3px solid #22c55e;" />
+          </div>`;
+      }
+    }
 
     // Calculate resolution time
     const createdAt = new Date(complaint.created_at);
@@ -442,27 +477,27 @@ const sendResolutionEmail = async (complaint) => {
     const resolutionHours = Math.floor((resolvedAt - createdAt) / (1000 * 60 * 60));
     const resolutionDays = Math.floor(resolutionHours / 24);
     const remainingHours = resolutionHours % 24;
-    const resolutionTimeText = resolutionDays > 0 
+    const resolutionTimeText = resolutionDays > 0
       ? `${resolutionDays} day(s) and ${remainingHours} hour(s)`
       : `${resolutionHours} hour(s)`;
 
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="background-color: #ecfdf5; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #22c55e;">
-          <h2 style="color: #22c55e; margin: 0;">✅ Your Complaint Has Been Resolved</h2>
+          <h2 style="color: #16a34a; margin: 0;">✅ Your Complaint Has Been Resolved</h2>
         </div>
         
         <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <p><strong>Complaint ID:</strong> #${complaint.id}</p>
-          <p><strong>Category:</strong> ${complaint.category}</p>
-          <p><strong>Status:</strong> <span style="color: #22c55e; font-weight: bold;">RESOLVED</span></p>
-          <p><strong>Resolution Time:</strong> ${resolutionTimeText}</p>
+          <p style="margin: 5px 0;"><strong>Complaint ID:</strong> #${complaint.id}</p>
+          <p style="margin: 5px 0;"><strong>Category:</strong> ${complaint.category}</p>
+          <p style="margin: 5px 0;"><strong>Status:</strong> <span style="color: #16a34a; font-weight: bold;">RESOLVED</span></p>
+          <p style="margin: 5px 0;"><strong>Resolution Time:</strong> ${resolutionTimeText}</p>
         </div>
         
         ${complaint.resolution_message ? `
         <div style="margin: 20px 0;">
-          <h3>📝 Resolution Message:</h3>
-          <p style="background-color: #ecfdf5; padding: 15px; border-radius: 8px; border-left: 4px solid #22c55e;">
+          <h3 style="margin-bottom: 10px;">📝 Resolution Message:</h3>
+          <p style="background-color: #ecfdf5; padding: 15px; border-radius: 8px; border-left: 4px solid #22c55e; margin: 0;">
             ${complaint.resolution_message}
           </p>
         </div>
@@ -479,20 +514,20 @@ const sendResolutionEmail = async (complaint) => {
       </div>
     `;
 
+    console.log('📧 [RESOLUTION] Sending with', attachments.length, 'inline images');
+    
     const result = await sendEmailUnified({
       to: complaint.email,
       subject: `✅ Your Complaint #${complaint.id} Has Been Resolved`,
-      html: html
+      html: html,
+      attachments: attachments
     });
 
     console.log('📧 [RESOLUTION] Result:', result);
     console.log('📧 ========== RESOLUTION EMAIL END ==========\n');
     return result.success;
   } catch (err) {
-    console.error('📧 ❌ [RESOLUTION] Email FAILED');
-    console.error('📧 ❌ [RESOLUTION] Recipient:', complaint.email);
-    console.error('📧 ❌ [RESOLUTION] Error:', err.message);
-    console.log('📧 ========== RESOLUTION EMAIL END (FAILED) ==========\n');
+    console.error('📧 ❌ [RESOLUTION] Email FAILED:', err.message);
     return false;
   }
 };
