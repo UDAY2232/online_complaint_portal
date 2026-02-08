@@ -64,14 +64,13 @@ const initializeTransporter = () => {
 
   transporter = nodemailer.createTransport({
 
-  host: 'smtp.gmail.com',
-
-  port: 465,
-  secure: true,   // ✅ IMPORTANT
+  host: process.env.EMAIL_HOST || "smtp.gmail.com",
+  port: Number(process.env.EMAIL_PORT) || 587,
+  secure: false, // 587 ki always false
 
   auth: {
     user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS?.replace(/\s/g, ''),
+    pass: process.env.EMAIL_PASS?.replace(/\s/g, "")
   },
 
   connectionTimeout: 20000,
@@ -82,6 +81,7 @@ const initializeTransporter = () => {
     rejectUnauthorized: false
   }
 });
+
 
 
   console.log('📧 [INIT] ✅ Email transporter CREATED - ready for sendMail()');
@@ -761,6 +761,152 @@ const sendTestEmail = async (recipientEmail) => {
   }
 };
 
+/**
+ * Send Escalation Alert to Superadmin
+ * Called when a complaint reaches critical escalation level
+ * @param {object} complaint - Complaint object
+ * @param {number} hoursOverdue - Hours past SLA
+ * @param {string} superadminEmail - Superadmin email from database
+ */
+const sendSuperadminEscalationAlert = async (complaint, hoursOverdue, superadminEmail) => {
+  console.log('\n📧 ========== SUPERADMIN ESCALATION ALERT START ==========');
+  console.log('📧 [SUPERADMIN ALERT] Complaint ID:', complaint?.id);
+  console.log('📧 [SUPERADMIN ALERT] Escalation Level:', complaint?.escalation_level);
+  console.log('📧 [SUPERADMIN ALERT] Superadmin Email:', superadminEmail || 'NONE');
+
+  // Reinitialize transporter if needed
+  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    console.log('📧 [SUPERADMIN ALERT] Transporter missing, reinitializing...');
+    initializeTransporter();
+  }
+
+  if (!transporter) {
+    console.log('📧 ⚠️ [SUPERADMIN ALERT] No transporter - skipping notification');
+    console.log('📧 ========== SUPERADMIN ESCALATION ALERT END (SKIPPED) ==========\n');
+    return false;
+  }
+
+  if (!superadminEmail) {
+    console.log('📧 ⚠️ [SUPERADMIN ALERT] No superadmin email provided - skipping notification');
+    console.log('📧 ========== SUPERADMIN ESCALATION ALERT END (SKIPPED) ==========\n');
+    return false;
+  }
+
+  try {
+    const urgencyLevel = complaint.escalation_level >= 3 ? 'CRITICAL' : 
+                         complaint.escalation_level === 2 ? 'HIGH' : 'MODERATE';
+    
+    const urgencyColor = complaint.escalation_level >= 3 ? '#dc2626' : 
+                         complaint.escalation_level === 2 ? '#f97316' : '#eab308';
+
+    const problemImageSection = complaint.problem_image_url
+      ? `<div style="margin: 20px 0;">
+           <p><strong>Problem Image:</strong></p>
+           <img src="${complaint.problem_image_url}" alt="Problem" style="max-width: 400px; border-radius: 8px; border: 2px solid ${urgencyColor};" />
+         </div>`
+      : '';
+
+    const userInfo = complaint.is_anonymous || !complaint.email
+      ? '<p><strong>Submitted by:</strong> <em>Anonymous User</em></p>'
+      : `<p><strong>Submitted by:</strong> ${complaint.name || 'User'} (<a href="mailto:${complaint.email}">${complaint.email}</a>)</p>`;
+
+    const mailOptions = {
+      from: `"Complaint Portal - ${urgencyLevel} ALERT" <${process.env.EMAIL_USER}>`,
+      to: superadminEmail,
+      subject: `🚨 ${urgencyLevel} ESCALATION: Complaint #${complaint.id} - Level ${complaint.escalation_level}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 4px solid ${urgencyColor}; border-radius: 12px;">
+          <div style="background-color: ${urgencyColor}15; padding: 20px; border-radius: 8px; margin-bottom: 20px; text-align: center;">
+            <h1 style="color: ${urgencyColor}; margin: 0; font-size: 28px;">🚨 ${urgencyLevel} ESCALATION ALERT</h1>
+            <p style="color: #666; margin: 10px 0 0 0;">Superadmin Attention Required</p>
+          </div>
+          
+          <div style="background-color: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid ${urgencyColor};">
+            <h3 style="margin-top: 0; color: #1e293b;">Complaint Details</h3>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-weight: bold; width: 140px;">Complaint ID:</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">#${complaint.id}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-weight: bold;">Category:</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">${complaint.category}</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-weight: bold;">Priority:</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">
+                  <span style="background-color: ${complaint.priority === 'high' ? '#fef2f2' : complaint.priority === 'medium' ? '#fffbeb' : '#f0fdf4'}; 
+                               color: ${complaint.priority === 'high' ? '#dc2626' : complaint.priority === 'medium' ? '#d97706' : '#16a34a'}; 
+                               padding: 4px 12px; border-radius: 12px; font-weight: bold; text-transform: uppercase;">
+                    ${complaint.priority}
+                  </span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-weight: bold;">Escalation Level:</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">
+                  <span style="background-color: ${urgencyColor}; color: white; padding: 4px 12px; border-radius: 12px; font-weight: bold;">
+                    Level ${complaint.escalation_level}
+                  </span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-weight: bold;">Hours Overdue:</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; color: ${urgencyColor}; font-weight: bold;">${hoursOverdue} hours</td>
+              </tr>
+              <tr>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0; font-weight: bold;">Current Status:</td>
+                <td style="padding: 8px 0; border-bottom: 1px solid #e2e8f0;">${complaint.status}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div style="margin: 20px 0;">
+            ${userInfo}
+          </div>
+
+          <div style="margin: 20px 0;">
+            <h3 style="color: #1e293b;">Issue Description:</h3>
+            <div style="background-color: #fff7ed; padding: 15px; border-radius: 8px; border-left: 4px solid #f97316;">
+              ${complaint.description}
+            </div>
+          </div>
+          
+          ${problemImageSection}
+          
+          <hr style="margin: 30px 0; border: none; border-top: 2px solid ${urgencyColor};" />
+          
+          <div style="background-color: ${urgencyColor}15; padding: 20px; border-radius: 8px; text-align: center;">
+            <p style="color: ${urgencyColor}; font-weight: bold; font-size: 16px; margin: 0 0 10px 0;">
+              ⚠️ IMMEDIATE SUPERADMIN ACTION REQUIRED
+            </p>
+            <p style="color: #666; margin: 0; font-size: 14px;">
+              This complaint has been escalated to Level ${complaint.escalation_level} and exceeds SLA limits by ${hoursOverdue} hours.
+              Please review and take appropriate action in the Super Admin Dashboard.
+            </p>
+          </div>
+          
+          <p style="color: #94a3b8; font-size: 12px; text-align: center; margin-top: 20px;">
+            This is an automated alert from the Complaint Portal Escalation System
+          </p>
+        </div>
+      `,
+    };
+
+    const info = await transporter.sendMail(mailOptions);
+    console.log('📧 ✅ [SUPERADMIN ALERT] Email sent successfully');
+    console.log('📧 ✅ [SUPERADMIN ALERT] Recipient:', superadminEmail);
+    console.log('📧 ✅ [SUPERADMIN ALERT] Message ID:', info.messageId);
+    console.log('📧 ========== SUPERADMIN ESCALATION ALERT END (SUCCESS) ==========\n');
+    return true;
+  } catch (err) {
+    console.error('📧 ❌ [SUPERADMIN ALERT] Email FAILED');
+    console.error('📧 ❌ [SUPERADMIN ALERT] Error:', err.message);
+    console.log('📧 ========== SUPERADMIN ESCALATION ALERT END (FAILED) ==========\n');
+    return false;
+  }
+};
+
 module.exports = {
   initializeTransporter,
   getTransporter,
@@ -773,4 +919,5 @@ module.exports = {
   sendPasswordResetEmail,
   sendStatusChangeEmail,
   sendTestEmail,
+  sendSuperadminEscalationAlert,
 };

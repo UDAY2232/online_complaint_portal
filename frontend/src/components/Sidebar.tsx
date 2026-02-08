@@ -1,6 +1,6 @@
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Home, FileText, BarChart3, Settings, Users, TrendingUp, AlertTriangle } from "lucide-react";
+import { Home, FileText, BarChart3, Settings, Users, TrendingUp, AlertTriangle, Clock, Shield } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 interface SidebarProps {
@@ -29,7 +29,11 @@ const Sidebar = ({ role }: SidebarProps) => {
 
   const superadminLinks = [
     { label: "Dashboard", path: "/superadmin/dashboard", icon: Home },
-    { label: "Escalated", path: "/superadmin/dashboard", icon: AlertTriangle },
+    { label: "Escalated", path: "/superadmin/escalated", icon: AlertTriangle },
+    { label: "History", path: "/superadmin/history", icon: Clock },
+    { label: "Admins", path: "/superadmin/admins", icon: Shield },
+    { label: "Reports", path: "/superadmin/reports", icon: BarChart3 },
+    { label: "Settings", path: "/superadmin/settings", icon: Settings },
   ];
 
   const links = role === "superadmin" ? superadminLinks : role === "admin" ? adminLinks : userLinks;

@@ -22,6 +22,7 @@ import AdminReports from "./pages/AdminReports";
 import AdminSettings from "./pages/AdminSettings";
 import EscalationHistory from "./pages/EscalationHistory";
 import SuperAdminDashboard from "./pages/SuperAdminDashboard";
+import SuperAdminAdmins from "./pages/SuperAdminAdmins";
 import ProtectedRoute from "./components/ProtectedRoute";
 import NotFound from "./pages/NotFound";
 
@@ -129,6 +130,46 @@ const App = () => (
             element={
               <ProtectedRoute role="superadmin">
                 <SuperAdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/superadmin/escalated"
+            element={
+              <ProtectedRoute role="superadmin">
+                <SuperAdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/superadmin/history"
+            element={
+              <ProtectedRoute role="superadmin">
+                <EscalationHistory />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/superadmin/admins"
+            element={
+              <ProtectedRoute role="superadmin">
+                <SuperAdminAdmins />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/superadmin/reports"
+            element={
+              <ProtectedRoute role="superadmin">
+                <AdminReports />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/superadmin/settings"
+            element={
+              <ProtectedRoute role="superadmin">
+                <AdminSettings />
               </ProtectedRoute>
             }
           />

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Sidebar from "@/components/Sidebar";
@@ -8,6 +9,9 @@ import { api } from "@/lib/api";
 
 const AdminReports = () => {
   const [complaints, setComplaints] = useState<any[]>([]);
+  const location = useLocation();
+  const isSuperAdmin = location.pathname.startsWith('/superadmin');
+  const sidebarRole = isSuperAdmin ? 'superadmin' : 'admin';
 
   useEffect(() => {
     const load = async () => {
@@ -147,7 +151,7 @@ const AdminReports = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
       <div className="flex">
-        <Sidebar role="admin" />
+        <Sidebar role={sidebarRole} />
         <main className="flex-1 p-6">
           <div className="max-w-7xl mx-auto space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

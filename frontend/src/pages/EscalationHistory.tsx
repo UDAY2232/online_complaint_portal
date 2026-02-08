@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import Sidebar from "@/components/Sidebar";
@@ -25,6 +26,9 @@ const EscalationHistory = () => {
   const [escalations, setEscalations] = useState<EscalationRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
+  const location = useLocation();
+  const isSuperAdmin = location.pathname.startsWith('/superadmin');
+  const sidebarRole = isSuperAdmin ? 'superadmin' : 'admin';
 
   useEffect(() => {
     fetchEscalations();
@@ -65,7 +69,7 @@ const EscalationHistory = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
       <div className="flex">
-        <Sidebar role="admin" />
+        <Sidebar role={sidebarRole} />
         <main className="flex-1 p-6">
           <div className="max-w-7xl mx-auto space-y-6">
             <div>

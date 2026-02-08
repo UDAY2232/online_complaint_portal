@@ -722,6 +722,128 @@ app.put(
 );
 
 // Also support POST for backward compatibility (uses same transactional logic)
+app.post(
+  "/api/complaints/:id/resolve",
+  upload.single("image"),
+  async (req, res) => {
+
+    const id = req.params.id;
+    let connection = null;
+    let resolvedImageUrl = null;
+
+    console.log("\n========== RESOLVE COMPLAINT (POST) START ==========");
+
+    try {
+      const resolution_message = req.body.resolution_message || "";
+
+      const [existing] = await db
+        .promise()
+        .query("SELECT * FROM complaints WHERE id = ?", [id]);
+
+      if (existing.length === 0) {
+        return res.status(404).json({ error: "Complaint not found" });
+      }
+
+      // ----------------- upload image -----------------
+      if (req.file && req.file.buffer) {
+        const base64Image = `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`;
+        const result = await cloudinary.uploader.upload(base64Image, {
+          folder: "complaints/resolved",
+        });
+        resolvedImageUrl = result.secure_url;
+      }
+
+      // ----------------- transaction -----------------
+      connection = await db.promise().getConnection();
+      await connection.beginTransaction();
+
+      await connection.query(
+        `UPDATE complaints 
+         SET status='resolved',
+             resolution_message=?,
+             resolved_image_url=?,
+             resolved_at=NOW(),
+             escalation_level=0
+         WHERE id=?`,
+        [resolution_message, resolvedImageUrl, id]
+      );
+
+      try {
+        await connection.query(
+          `INSERT INTO escalation_history
+           (complaint_id, escalation_level, reason, notified_at, created_at)
+           VALUES (?,0,?,NOW(),NOW())`,
+          [id, `Resolved: ${resolution_message.substring(0,100)}`]
+        );
+      } catch (e) {}
+
+      await connection.commit();
+
+      // ----------------- fetch fresh row with user email -----------------
+      const [updated] = await db.promise().query(`
+        SELECT c.*,
+               u.email AS user_email
+        FROM complaints c
+        LEFT JOIN users u ON c.user_id = u.id
+        WHERE c.id = ?
+      `,[id]);
+
+      const resolvedComplaint = updated[0];
+
+      const recipientEmail =
+        resolvedComplaint.user_email ||
+        resolvedComplaint.email ||
+        null;
+
+      console.log("📧 Final recipient email :", recipientEmail);
+
+      // ----------------- send mail -----------------
+      let emailSent = false;
+
+      if (recipientEmail) {
+        const mailPayload = {
+          ...resolvedComplaint,
+          email: recipientEmail,
+          problem_image_url: resolvedComplaint.problem_image_url || null,
+          resolved_image_url: resolvedComplaint.resolved_image_url || null,
+          resolution_message: resolvedComplaint.resolution_message || ""
+        };
+
+        try {
+          emailSent = await sendResolutionEmailService(mailPayload);
+          console.log("📧 Resolution mail sent :", emailSent);
+        } catch (mailErr) {
+          console.error("📧 Resolution mail failed :", mailErr.message);
+        }
+      } else {
+        console.log("📧 No recipient email found – skipping mail");
+      }
+
+      res.json({
+        success: true,
+        message: "Complaint resolved successfully",
+        emailSent,
+        complaint: resolvedComplaint
+      });
+
+    } catch (err) {
+
+      if (connection) {
+        try { await connection.rollback(); } catch(e){}
+      }
+
+      console.error("❌ Resolve error (POST) :", err);
+
+      res.status(500).json({
+        success:false,
+        error:"Failed to resolve complaint"
+      });
+
+    } finally {
+      if (connection) connection.release();
+    }
+  }
+);
 
 
 // ================= GET COMPLAINT HISTORY =================

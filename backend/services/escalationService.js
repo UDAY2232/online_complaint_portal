@@ -4,7 +4,7 @@
  */
 
 const { checkSlaBreach, getSlaHours } = require('../config/sla');
-const { sendEscalationEmail } = require('./emailService');
+const { sendEscalationEmail, sendSuperadminEscalationAlert } = require('./emailService');
 
 /**
  * Process escalations for all overdue complaints
@@ -70,6 +70,23 @@ const processEscalations = async (db) => {
           // Send escalation email to admin
           const updatedComplaint = { ...complaint, escalation_level: newLevel };
           await sendEscalationEmail(updatedComplaint, slaCheck.hoursOverdue);
+
+          // Send alert to all superadmins for level 2+ escalations
+          if (newLevel >= 2) {
+            try {
+              const [superadmins] = await db.promise().query(
+                'SELECT email FROM users WHERE role = ? AND status = ?',
+                ['superadmin', 'active']
+              );
+              
+              for (const superadmin of superadmins) {
+                await sendSuperadminEscalationAlert(updatedComplaint, slaCheck.hoursOverdue, superadmin.email);
+              }
+              console.log(`⏰ [ESCALATION] Notified ${superadmins.length} superadmin(s) about Level ${newLevel} escalation`);
+            } catch (emailErr) {
+              console.error('⏰ [ESCALATION] ⚠️ Failed to notify superadmins:', emailErr.message);
+            }
+          }
 
           escalatedCount++;
         }

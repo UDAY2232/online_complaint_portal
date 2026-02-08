@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,6 +43,9 @@ interface SystemStats {
 
 const AdminSettings = () => {
   const { toast } = useToast();
+  const location = useLocation();
+  const isSuperAdmin = location.pathname.startsWith('/superadmin');
+  const sidebarRole = isSuperAdmin ? 'superadmin' : 'admin';
   const adminEmail = localStorage.getItem("userEmail") || "";
   const adminName = localStorage.getItem("userName") || "Admin";
   
@@ -246,7 +250,7 @@ const AdminSettings = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
       <div className="flex">
-        <Sidebar role="admin" />
+        <Sidebar role={sidebarRole} />
         <main className="flex-1 p-6">
           <div className="max-w-4xl mx-auto space-y-6">
             {/* Header */}

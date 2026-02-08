@@ -203,6 +203,28 @@ export const api = {
   checkEscalations: () =>
     axiosInstance.post("/complaints/check-escalations"),
 
+  // ================= SUPERADMIN =================
+  getEscalatedComplaints: () =>
+    axiosInstance.get("/superadmin/escalated-complaints"),
+
+  getSuperadminStats: () =>
+    axiosInstance.get("/superadmin/stats"),
+
+  getAllAdmins: () =>
+    axiosInstance.get("/superadmin/admins"),
+
+  getEscalationHistory: () =>
+    axiosInstance.get("/superadmin/escalation-history"),
+
+  manualEscalate: (complaintId: number, reason: string) =>
+    axiosInstance.post("/superadmin/escalate", { complaintId, reason }),
+
+  assignComplaint: (complaintId: number, adminId: number) =>
+    axiosInstance.post("/superadmin/assign", { complaintId, adminId }),
+
+  updateSuperadminSettings: (settings: { email?: string; escalationThreshold?: number }) =>
+    axiosInstance.put("/superadmin/settings", settings),
+
   // ================= USER ROLES (Admin) =================
   getUserRoles: () =>
     axiosInstance.get("/admin/users"),
