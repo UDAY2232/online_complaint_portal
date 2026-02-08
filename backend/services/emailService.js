@@ -170,9 +170,18 @@ const sendEmailUnified = async (options) => {
       
       const msg = {
         to: to,
-        from: fromEmail, // Must be verified sender in SendGrid
+        from: {
+          email: fromEmail,
+          name: 'Online Complaint Portal'
+        },
+        replyTo: fromEmail,
         subject: subject,
         html: html,
+        text: html.replace(/<[^>]*>/g, ''), // Plain text version for better deliverability
+        trackingSettings: {
+          clickTracking: { enable: false },
+          openTracking: { enable: false }
+        }
       };
       
       const response = await sgMail.send(msg);
