@@ -2,9 +2,29 @@
  * Email Service
  * Centralized email functionality for the application
  * All emails are sent to actual recipients from database - NO hardcoded emails
+ * 
+ * PRODUCTION: Uses Resend API (HTTP-based, works on Render free tier)
+ * DEVELOPMENT: Uses Nodemailer SMTP (direct connection)
  */
 
 const nodemailer = require('nodemailer');
+
+// ================= RESEND API SETUP =================
+let resendClient = null;
+const RESEND_API_KEY = process.env.RESEND_API_KEY;
+const USE_RESEND = !!RESEND_API_KEY;
+
+if (USE_RESEND) {
+  try {
+    const { Resend } = require('resend');
+    resendClient = new Resend(RESEND_API_KEY);
+    console.log('📧 ✅ Resend API initialized (HTTP-based email)');
+  } catch (err) {
+    console.error('📧 ❌ Failed to initialize Resend:', err.message);
+  }
+} else {
+  console.log('📧 ⚠️ RESEND_API_KEY not set - falling back to SMTP');
+}
 
 let transporter = null;
 let initializationAttempted = false;
@@ -122,89 +142,123 @@ const getTransporter = () => transporter;
 const getAdminEmail = () => process.env.ADMIN_EMAIL || null;
 
 /**
+ * Unified Email Sender - Uses Resend API (production) or Nodemailer (development)
+ * @param {object} options - { to, subject, html, from }
+ * @returns {object} - { success, messageId, error }
+ */
+const sendEmailUnified = async (options) => {
+  const { to, subject, html, from } = options;
+  const fromEmail = from || process.env.EMAIL_USER || 'noreply@complaint-portal.com';
+  
+  // TRY RESEND FIRST (for production on Render)
+  if (USE_RESEND && resendClient) {
+    try {
+      console.log('📧 [RESEND] Sending via Resend API...');
+      console.log('📧 [RESEND] To:', to);
+      console.log('📧 [RESEND] Subject:', subject);
+      
+      const { data, error } = await resendClient.emails.send({
+        from: `Complaint Portal <onboarding@resend.dev>`, // Use Resend's domain for free tier
+        to: [to],
+        subject: subject,
+        html: html,
+      });
+      
+      if (error) {
+        console.error('📧 ❌ [RESEND] API Error:', error);
+        throw new Error(error.message || 'Resend API error');
+      }
+      
+      console.log('📧 ✅ [RESEND] Email sent! ID:', data?.id);
+      return { success: true, messageId: data?.id, method: 'resend' };
+    } catch (err) {
+      console.error('📧 ❌ [RESEND] Failed:', err.message);
+      // Fall through to nodemailer attempt
+    }
+  }
+  
+  // FALLBACK TO NODEMAILER (for local development)
+  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
+    initializeTransporter();
+  }
+  
+  if (transporter) {
+    try {
+      console.log('📧 [SMTP] Sending via Nodemailer...');
+      const info = await transporter.sendMail({
+        from: `"Complaint Portal" <${fromEmail}>`,
+        to: to,
+        subject: subject,
+        html: html,
+      });
+      console.log('📧 ✅ [SMTP] Email sent! ID:', info.messageId);
+      return { success: true, messageId: info.messageId, method: 'smtp' };
+    } catch (err) {
+      console.error('📧 ❌ [SMTP] Failed:', err.message);
+      return { success: false, error: err.message, method: 'smtp' };
+    }
+  }
+  
+  console.error('📧 ❌ No email method available');
+  return { success: false, error: 'No email service configured', method: 'none' };
+};
+
+/**
  * Send Complaint Submission Confirmation Email to User
  * @param {object} complaint - Complaint object with user email
  */
 const sendComplaintSubmissionEmail = async (complaint) => {
   console.log('\n📧 ========== SUBMISSION EMAIL START ==========');
-  console.log('📧 [SUBMISSION] Email type: COMPLAINT_SUBMISSION');
   console.log('📧 [SUBMISSION] Complaint ID:', complaint?.id);
-  console.log('📧 [SUBMISSION] Recipient email:', complaint?.email || 'NONE');
-  console.log('📧 [SUBMISSION] Transporter ready:', !!transporter);
+  console.log('📧 [SUBMISSION] Recipient:', complaint?.email || 'NONE');
 
-  // Reinitialize transporter if needed
-  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    console.log('📧 [SUBMISSION] Transporter missing, reinitializing...');
-    initializeTransporter();
-  }
-
-  if (!transporter) {
-    console.error('📧 ❌ [SUBMISSION] Transporter is NULL - cannot send email');
-    console.error('📧 ❌ [SUBMISSION] Check EMAIL_USER and EMAIL_PASS in environment');
-    console.log('📧 ========== SUBMISSION EMAIL END (FAILED) ==========\n');
-    return false;
-  }
-
-  // Email goes to the user who submitted the complaint
   if (!complaint?.email) {
-    console.error('📧 ❌ [SUBMISSION] No recipient email - cannot send');
-    console.log('📧 ========== SUBMISSION EMAIL END (SKIPPED) ==========\n');
+    console.error('📧 ❌ [SUBMISSION] No recipient email');
     return false;
   }
 
-  try {
-    const mailOptions = {
-      from: `"Complaint Portal" <${process.env.EMAIL_USER}>`,
-      to: complaint.email,  // Send to the complaint submitter
-      subject: `📝 Complaint #${complaint.id} Submitted Successfully`,
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background-color: #dbeafe; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #3b82f6;">
-            <h2 style="color: #1d4ed8; margin: 0;">📝 Complaint Submitted Successfully</h2>
-          </div>
-          
-          <p>Dear ${complaint.name || 'User'},</p>
-          
-          <p>Your complaint has been successfully submitted and is now being reviewed by our team.</p>
-          
-          <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
-            <p><strong>Complaint ID:</strong> #${complaint.id}</p>
-            <p><strong>Category:</strong> ${complaint.category}</p>
-            <p><strong>Priority:</strong> <span style="text-transform: uppercase;">${complaint.priority}</span></p>
-            <p><strong>Status:</strong> <span style="color: #3b82f6; font-weight: bold;">NEW</span></p>
-          </div>
-          
-          <div style="margin: 20px 0;">
-            <h3>Description:</h3>
-            <p style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid #3b82f6;">
-              ${complaint.description}
-            </p>
-          </div>
-          
-          <p>You will receive an email notification when your complaint is resolved.</p>
-          
-          <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
-          
-          <p style="color: #6b7280; font-size: 14px;">
-            Thank you for using our Complaint Portal.
-          </p>
-        </div>
-      `,
-    };
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <div style="background-color: #dbeafe; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #3b82f6;">
+        <h2 style="color: #1d4ed8; margin: 0;">📝 Complaint Submitted Successfully</h2>
+      </div>
+      
+      <p>Dear ${complaint.name || 'User'},</p>
+      
+      <p>Your complaint has been successfully submitted and is now being reviewed by our team.</p>
+      
+      <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p><strong>Complaint ID:</strong> #${complaint.id}</p>
+        <p><strong>Category:</strong> ${complaint.category}</p>
+        <p><strong>Priority:</strong> <span style="text-transform: uppercase;">${complaint.priority}</span></p>
+        <p><strong>Status:</strong> <span style="color: #3b82f6; font-weight: bold;">NEW</span></p>
+      </div>
+      
+      <div style="margin: 20px 0;">
+        <h3>Description:</h3>
+        <p style="background-color: #f9fafb; padding: 15px; border-radius: 8px; border-left: 4px solid #3b82f6;">
+          ${complaint.description}
+        </p>
+      </div>
+      
+      <p>You will receive an email notification when your complaint is resolved.</p>
+      
+      <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
+      
+      <p style="color: #6b7280; font-size: 14px;">
+        Thank you for using our Complaint Portal.
+      </p>
+    </div>
+  `;
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('📧 ✅ [SUBMISSION] Email SENT successfully');
-    console.log('📧 ✅ [SUBMISSION] Recipient:', complaint.email);
-    console.log('📧 ✅ [SUBMISSION] Message ID:', info.messageId);
-    console.log('📧 ========== SUBMISSION EMAIL END (SUCCESS) ==========\n');
-    return true;
-  } catch (err) {
-    console.error('📧 ❌ [SUBMISSION] Email FAILED');
-    console.error('📧 ❌ [SUBMISSION] Recipient:', complaint.email);
-    console.error('📧 ❌ [SUBMISSION] Error:', err.message);
-    console.log('📧 ========== SUBMISSION EMAIL END (FAILED) ==========\n');
-    return false;
-  }
+  const result = await sendEmailUnified({
+    to: complaint.email,
+    subject: `📝 Complaint #${complaint.id} Submitted Successfully`,
+    html: html
+  });
+
+  console.log('📧 ========== SUBMISSION EMAIL END ==========\n');
+  return result.success;
 };
 
 /**
@@ -479,96 +533,65 @@ const sendVerificationEmail = async (email, token) => {
  */
 const sendPasswordResetEmail = async (email, name, resetUrl, expiryMinutes = 15) => {
   console.log('\n📧 ========== PASSWORD RESET EMAIL START ==========');
-  console.log('📧 [PASSWORD RESET] Email type: FORGOT_PASSWORD');
   console.log('📧 [PASSWORD RESET] Recipient:', email);
   console.log('📧 [PASSWORD RESET] Reset URL:', resetUrl);
-  console.log('📧 [PASSWORD RESET] Transporter ready:', !!transporter);
   
   // CRITICAL: Validate reset URL is not localhost in production
   if (isProduction && resetUrl && (resetUrl.includes('localhost') || resetUrl.includes('127.0.0.1'))) {
     console.error('📧 ❌ [PASSWORD RESET] BLOCKING: Reset URL contains localhost in production!');
-    console.error('📧 ❌ [PASSWORD RESET] URL:', resetUrl);
-    console.error('📧 ❌ [PASSWORD RESET] Fix FRONTEND_URL in environment variables');
-    console.log('📧 ========== PASSWORD RESET EMAIL END (BLOCKED) ==========\n');
-    return false;
-  }
-  
-  // If transporter doesn't exist but credentials do, try to create it
-  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    console.log('📧 [PASSWORD RESET] Transporter missing, reinitializing...');
-    initializeTransporter();
-  }
-  
-  if (!transporter) {
-    console.error('📧 ❌ [PASSWORD RESET] Transporter is NULL - cannot send email');
-    console.error('📧 ❌ [PASSWORD RESET] Check EMAIL_USER and EMAIL_PASS in environment');
-    console.log('📧 ========== PASSWORD RESET EMAIL END (FAILED) ==========\n');
     return false;
   }
 
   // Validate email parameter
   if (!email || typeof email !== 'string' || !email.includes('@')) {
     console.error('📧 ❌ [PASSWORD RESET] Invalid email address:', email);
-    console.log('📧 ========== PASSWORD RESET EMAIL END (FAILED) ==========\n');
     return false;
   }
 
-  try {
-    const mailOptions = {
-      from: `"Complaint Portal" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: '🔐 Password Reset Request - Complaint Portal',
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #f59e0b;">Password Reset Request</h2>
-          
-          <p>Hi ${name || 'User'},</p>
-          
-          <p>We received a request to reset your password. Click the button below to create a new password:</p>
-          
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${resetUrl}"
-               style="background-color: #f59e0b; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">
-              Reset Password
-            </a>
-          </div>
-          
-          <p style="color: #6b7280; font-size: 14px;">
-            Or copy and paste this link in your browser:<br>
-            <a href="${resetUrl}">${resetUrl}</a>
+  const html = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+      <h2 style="color: #f59e0b;">Password Reset Request</h2>
+      
+      <p>Hi ${name || 'User'},</p>
+      
+      <p>We received a request to reset your password. Click the button below to create a new password:</p>
+      
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${resetUrl}"
+           style="background-color: #f59e0b; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+          Reset Password
+        </a>
+      </div>
+      
+      <p style="color: #6b7280; font-size: 14px;">
+        Or copy and paste this link in your browser:<br>
+        <a href="${resetUrl}">${resetUrl}</a>
+      </p>
+      
+      <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0;">
+        <p style="color: #92400e; margin: 0; font-size: 14px;">
+          ⚠️ This link will expire in <strong>${expiryMinutes} minutes</strong>.<br>
+          This link can only be used once.<br>
+          If you didn't request this reset, you can safely ignore this email.
+        </p>
+      </div>
+      
+      <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;" />
+      
+      <p style="color: #6b7280; font-size: 12px;">
+        For security, this request was received from your account. If you did not make this request, please secure your account immediately.
+      </p>
+    </div>
+  `;
 
-          </p>
-          
-          <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; margin: 20px 0;">
-            <p style="color: #92400e; margin: 0; font-size: 14px;">
-              ⚠️ This link will expire in <strong>${expiryMinutes} minutes</strong>.<br>
-              This link can only be used once.<br>
-              If you didn't request this reset, you can safely ignore this email.
-            </p>
-          </div>
-          
-          <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 30px 0;" />
-          
-          <p style="color: #6b7280; font-size: 12px;">
-            For security, this request was received from your account. If you did not make this request, please secure your account immediately.
-          </p>
-        </div>
-      `,
-    };
+  const result = await sendEmailUnified({
+    to: email,
+    subject: '🔐 Password Reset Request - Complaint Portal',
+    html: html
+  });
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('📧 ✅ [PASSWORD RESET] Email SENT successfully');
-    console.log('📧 ✅ [PASSWORD RESET] Recipient:', email);
-    console.log('📧 ✅ [PASSWORD RESET] Message ID:', info.messageId);
-    console.log('📧 ========== PASSWORD RESET EMAIL END (SUCCESS) ==========\n');
-    return true;
-  } catch (err) {
-    console.error('📧 ❌ [PASSWORD RESET] Email FAILED');
-    console.error('📧 ❌ [PASSWORD RESET] Recipient:', email);
-    console.error('📧 ❌ [PASSWORD RESET] Error:', err.message);
-    console.log('📧 ========== PASSWORD RESET EMAIL END (FAILED) ==========\n');
-    return false;
-  }
+  console.log('📧 ========== PASSWORD RESET EMAIL END ==========\n');
+  return result.success;
 };
 
 /**
@@ -679,86 +702,41 @@ const sendStatusChangeEmail = async (complaint, newStatus) => {
 const sendTestEmail = async (recipientEmail) => {
   console.log('\n========== TEST EMAIL START ==========');
   console.log('📧 [TEST] Recipient:', recipientEmail);
+  console.log('📧 [TEST] RESEND_API_KEY:', RESEND_API_KEY ? 'SET' : 'NOT SET');
+  console.log('📧 [TEST] Resend client:', !!resendClient);
   console.log('📧 [TEST] EMAIL_USER:', process.env.EMAIL_USER ? process.env.EMAIL_USER.substring(0, 5) + '***' : 'NOT SET');
-  console.log('📧 [TEST] EMAIL_PASS:', process.env.EMAIL_PASS ? `SET (${process.env.EMAIL_PASS.length} chars)` : 'NOT SET');
-  console.log('📧 [TEST] Transporter exists:', !!transporter);
-  console.log('📧 [TEST] initializationAttempted:', initializationAttempted);
 
-  // Try to initialize if needed
-  if (!transporter && process.env.EMAIL_USER && process.env.EMAIL_PASS) {
-    console.log('📧 [TEST] Transporter missing, initializing...');
-    initializeTransporter();
-    console.log('📧 [TEST] After init - Transporter exists:', !!transporter);
-  }
-
-  if (!transporter) {
-    const result = {
-      success: false,
-      error: 'No transporter available',
-      details: {
-        EMAIL_USER_SET: !!process.env.EMAIL_USER,
-        EMAIL_PASS_SET: !!process.env.EMAIL_PASS,
-        initializationAttempted,
-        transporterExists: false
-      }
-    };
-    console.log('📧 [TEST] ❌ Failed:', result);
-    console.log('========== TEST EMAIL END ==========\n');
-    return result;
-  }
-
-  const testTo = recipientEmail || process.env.EMAIL_USER;
+  const testTo = recipientEmail || process.env.EMAIL_USER || 'test@example.com';
   
-  try {
-    const mailOptions = {
-      from: `"Complaint Portal TEST" <${process.env.EMAIL_USER}>`,
-      to: testTo,
-      subject: '✅ Test Email - Complaint Portal (' + new Date().toISOString() + ')',
-      html: `
-        <div style="font-family: Arial, sans-serif; padding: 20px;">
-          <h2 style="color: #22c55e;">✅ Email Service Working!</h2>
-          <p>This test email was sent from your Complaint Portal's centralized email service.</p>
-          <p><strong>Time:</strong> ${new Date().toISOString()}</p>
-          <p><strong>Environment:</strong> ${process.env.NODE_ENV || 'development'}</p>
-          <p><strong>Sent To:</strong> ${testTo}</p>
-        </div>
-      `,
-    };
+  const html = `
+    <div style="font-family: Arial, sans-serif; padding: 20px;">
+      <h2 style="color: #22c55e;">✅ Email Service Working!</h2>
+      <p>This test email was sent from your Complaint Portal.</p>
+      <p><strong>Time:</strong> ${new Date().toISOString()}</p>
+      <p><strong>Environment:</strong> ${process.env.NODE_ENV || 'development'}</p>
+      <p><strong>Method:</strong> ${USE_RESEND ? 'Resend API' : 'SMTP'}</p>
+      <p><strong>Sent To:</strong> ${testTo}</p>
+    </div>
+  `;
 
-    console.log('📧 [TEST] Sending to:', testTo);
-    const info = await transporter.sendMail(mailOptions);
-    
-    const result = {
-      success: true,
-      messageId: info.messageId,
-      response: info.response,
-      recipient: testTo,
-      details: {
-        EMAIL_USER_SET: true,
-        EMAIL_PASS_SET: true,
-        transporterExists: true
-      }
-    };
-    console.log('📧 [TEST] ✅ SUCCESS:', info.messageId);
-    console.log('========== TEST EMAIL END ==========\n');
-    return result;
-  } catch (err) {
-    const result = {
-      success: false,
-      error: err.message,
-      code: err.code,
-      responseCode: err.responseCode,
-      details: {
-        EMAIL_USER_SET: true,
-        EMAIL_PASS_SET: true,
-        transporterExists: true,
-        smtpError: true
-      }
-    };
-    console.error('📧 [TEST] ❌ FAILED:', err.message);
-    console.log('========== TEST EMAIL END ==========\n');
-    return result;
-  }
+  const result = await sendEmailUnified({
+    to: testTo,
+    subject: '✅ Test Email - Complaint Portal (' + new Date().toISOString() + ')',
+    html: html
+  });
+
+  console.log('📧 [TEST] Result:', result);
+  console.log('========== TEST EMAIL END ==========\n');
+  
+  return {
+    ...result,
+    recipient: testTo,
+    details: {
+      RESEND_API_KEY_SET: !!RESEND_API_KEY,
+      EMAIL_USER_SET: !!process.env.EMAIL_USER,
+      EMAIL_PASS_SET: !!process.env.EMAIL_PASS,
+    }
+  };
 };
 
 /**

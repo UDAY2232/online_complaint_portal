@@ -284,14 +284,29 @@ app.get("/api/test-email", async (req, res) => {
 // ================= EMAIL STATUS ENDPOINT =================
 app.get("/api/email-status", (req, res) => {
   const transporterExists = !!getTransporter();
+  const frontendUrl = process.env.FRONTEND_URL || process.env.FRONTEND_BASE_URL;
+  const isProduction = process.env.NODE_ENV === 'production';
+  
   res.json({
     configured: transporterExists,
-    EMAIL_USER: process.env.EMAIL_USER ? "✅ SET" : "❌ NOT SET",
-    EMAIL_PASS: process.env.EMAIL_PASS ? "✅ SET" : "❌ NOT SET",
+    environment: isProduction ? 'production' : 'development',
+    EMAIL_HOST: process.env.EMAIL_HOST || 'smtp.gmail.com (default)',
+    EMAIL_PORT: process.env.EMAIL_PORT || '587 (default)',
+    EMAIL_USER: process.env.EMAIL_USER ? `✅ SET (${process.env.EMAIL_USER.substring(0,5)}***)` : "❌ NOT SET",
+    EMAIL_PASS: process.env.EMAIL_PASS ? `✅ SET (${process.env.EMAIL_PASS.length} chars)` : "❌ NOT SET",
+    FRONTEND_URL: frontendUrl ? `✅ ${frontendUrl}` : "❌ NOT SET - password reset links broken!",
+    ADMIN_EMAIL: process.env.ADMIN_EMAIL ? `✅ ${process.env.ADMIN_EMAIL}` : "❌ NOT SET",
     transporter: transporterExists ? "✅ CREATED" : "❌ NULL",
     message: transporterExists 
       ? "Email is configured and ready" 
-      : "Email NOT configured - add EMAIL_USER and EMAIL_PASS to Render environment variables"
+      : "Email NOT configured - add EMAIL_USER and EMAIL_PASS to Render environment variables",
+    troubleshooting: [
+      "1. Go to https://myaccount.google.com/apppasswords",
+      "2. Create new App Password for 'Mail' on 'Other (Render)'",
+      "3. Copy the 16-char password (no spaces)",
+      "4. Update EMAIL_PASS in Render Environment Variables",
+      "5. Click 'Manual Deploy' in Render"
+    ]
   });
 });
 
