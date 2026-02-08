@@ -38,6 +38,15 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
       return;
     }
 
+    if (!file) {
+      toast({
+        title: "Evidence Required",
+        description: "Please upload an evidence image for your complaint",
+        variant: "destructive",
+      });
+      return;
+    }
+
     try {
       setLoading(true);
 
@@ -132,11 +141,14 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
 
       {/* IMAGE */}
       <div className="space-y-2">
-        <Label>Upload Evidence (Optional)</Label>
+        <Label className="flex items-center gap-1">
+          Upload Evidence <span className="text-destructive">*</span>
+        </Label>
         <Input
           type="file"
           accept="image/*"
           onChange={(e) => setFile(e.target.files?.[0] || null)}
+          required
         />
       </div>
 
