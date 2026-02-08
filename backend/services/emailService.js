@@ -430,12 +430,11 @@ const sendResolutionEmail = async (complaint) => {
   }
 
   try {
-    // Fetch images for CID attachment (inline embedding)
+    // Fetch images for attachment
     const attachments = [];
     let problemImageSection = '';
-    let resolvedImageSection = '';
 
-    // Fetch problem image
+    // Fetch problem image (attached, shown at bottom of email)
     if (complaint.problem_image_url) {
       const problemImg = await fetchImageForAttachment(complaint.problem_image_url);
       if (problemImg) {
@@ -443,17 +442,12 @@ const sendResolutionEmail = async (complaint) => {
           content: problemImg.base64,
           filename: 'problem_image.jpg',
           type: problemImg.contentType,
-          content_id: 'problem_image'
+          disposition: 'attachment'
         });
-        problemImageSection = `
-          <div style="margin: 20px 0;">
-            <h3 style="color: #dc2626; margin-bottom: 10px;">❌ BEFORE (User Reported Problem):</h3>
-            <img src="cid:problem_image" alt="Problem Image" width="400" style="display: block; max-width: 100%; height: auto; border-radius: 8px; border: 3px solid #ef4444;" />
-          </div>`;
       }
     }
 
-    // Fetch resolved image
+    // Fetch resolved image (attached, shown at bottom of email)
     if (complaint.resolved_image_url) {
       const resolvedImg = await fetchImageForAttachment(complaint.resolved_image_url);
       if (resolvedImg) {
@@ -461,14 +455,17 @@ const sendResolutionEmail = async (complaint) => {
           content: resolvedImg.base64,
           filename: 'resolution_image.jpg',
           type: resolvedImg.contentType,
-          content_id: 'resolution_image'
+          disposition: 'attachment'
         });
-        resolvedImageSection = `
-          <div style="margin: 20px 0;">
-            <h3 style="color: #22c55e; margin-bottom: 10px;">✅ AFTER (Admin Resolution):</h3>
-            <img src="cid:resolution_image" alt="Resolution Image" width="400" style="display: block; max-width: 100%; height: auto; border-radius: 8px; border: 3px solid #22c55e;" />
-          </div>`;
       }
+    }
+    
+    // Add note about attachments if images exist
+    if (attachments.length > 0) {
+      problemImageSection = `
+        <div style="margin: 20px 0; background-color: #fef3c7; padding: 15px; border-radius: 8px; border: 1px solid #f59e0b;">
+          <p style="margin: 0; color: #92400e;">📎 <strong>${attachments.length} image(s) attached:</strong> Problem image & Resolution image are attached below.</p>
+        </div>`;
     }
 
     // Calculate resolution time
@@ -504,7 +501,6 @@ const sendResolutionEmail = async (complaint) => {
         ` : ''}
         
         ${problemImageSection}
-        ${resolvedImageSection}
         
         <hr style="margin: 30px 0; border: none; border-top: 1px solid #e5e7eb;" />
         
