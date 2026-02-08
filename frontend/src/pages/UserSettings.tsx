@@ -412,6 +412,15 @@ const UserSettings = () => {
                     disabled={!emailNotifications}
                   />
                 </div>
+
+                {/* Spam folder warning */}
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-4">
+                  <p className="text-sm text-amber-800">
+                    <strong>📧 Important:</strong> Email notifications may land in your Spam/Junk folder. 
+                    Please check spam and mark emails from <strong>complaintportals@gmail.com</strong> as 
+                    "Not Spam" to receive them in your inbox.
+                  </p>
+                </div>
               </CardContent>
             </Card>
 

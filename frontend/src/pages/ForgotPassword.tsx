@@ -87,8 +87,22 @@ const ForgotPassword = () => {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground text-center">
-              The link will expire in 15 minutes. If you don't see the email, check your spam folder.
+              The link will expire in 15 minutes.
             </p>
+            
+            {/* Spam folder warning */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-2">
+              <p className="text-sm font-medium text-amber-800">
+                📧 Don't see the email? Check your Spam/Junk folder!
+              </p>
+              <ul className="text-xs text-amber-700 space-y-1 list-disc list-inside">
+                <li>Open your Spam/Junk folder</li>
+                <li>Find email from <strong>complaintportals@gmail.com</strong></li>
+                <li>Click "Not Spam" or "Move to Inbox"</li>
+                <li>Add sender to contacts to avoid this in future</li>
+              </ul>
+            </div>
+
             <div className="flex flex-col gap-2">
               <Button
                 variant="outline"

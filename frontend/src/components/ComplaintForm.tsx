@@ -65,7 +65,7 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
 
       toast({
         title: "Complaint submitted",
-        description: "Your complaint has been submitted successfully",
+        description: "Your complaint has been submitted successfully. Check spam folder for email updates.",
       });
 
       setCategory("");

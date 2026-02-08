@@ -83,7 +83,7 @@ const Signup = () => {
 
       toast({
         title: "Account created successfully!",
-        description: "You can now log in with your credentials.",
+        description: "You can now log in with your credentials. Check spam folder for any confirmation emails.",
       });
 
       navigate("/login");
