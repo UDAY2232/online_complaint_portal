@@ -49,14 +49,13 @@ const initAdminRoutes = (db) => {
   // ================= GET ALL USERS (Admin) =================
   router.get('/users', async (req, res) => {
     try {
-      const [users] = await db.promise().query(
+      const result = await db.query(
         'SELECT id, email, name, role, status, email_verified, created_at FROM users ORDER BY created_at DESC'
       );
       // Ensure status has a default value for users without one
-      const usersWithStatus = users.map(u => ({
+      const usersWithStatus = result.rows.map(u => ({
         ...u,
         status: u.status || 'active'
-        
       }));
       res.json(usersWithStatus);
     } catch (err) {
@@ -96,10 +95,11 @@ const initAdminRoutes = (db) => {
       }
 
       // Check if user already exists
-      const [existing] = await db.promise().query(
-        'SELECT id FROM users WHERE LOWER(email) = LOWER(?)',
+      const existingResult = await db.query(
+        'SELECT id FROM users WHERE LOWER(email) = LOWER($1)',
         [email]
       );
+      const existing = existingResult.rows;
 
       if (existing.length > 0) {
         return res.status(409).json({ error: 'User with this email already exists' });
@@ -109,15 +109,14 @@ const initAdminRoutes = (db) => {
       const finalPassword = password || Math.random().toString(36).slice(-8) + 'A1!';
       const passwordHash = await bcrypt.hash(finalPassword, 10);
 
-      const [result] = await db.promise().query(
-        'INSERT INTO users (email, password_hash, name, role, status, email_verified, created_at) VALUES (LOWER(?), ?, ?, ?, ?, FALSE, NOW())',
+      const result = await db.query(
+        'INSERT INTO users (email, password_hash, name, role, status, email_verified, created_at) VALUES (LOWER($1), $2, $3, $4, $5, FALSE, NOW()) RETURNING id',
         [email, passwordHash, name || null, role, status]
       );
-
-      console.log('📝 User created successfully:', result.insertId);
-
+      const userId = result.rows[0].id;
+      console.log('📝 User created successfully:', userId);
       res.status(201).json({
-        id: result.insertId,
+        id: userId,
         email: email.toLowerCase(),
         name: name || null,
         role,
@@ -147,7 +146,7 @@ const initAdminRoutes = (db) => {
         if (!validRoles.includes(role)) {
           return res.status(400).json({ error: 'Invalid role. Must be: user, admin, or superadmin' });
         }
-        updates.push('role = ?');
+        updates.push(`role = $${updates.length + 1}`);
         values.push(role);
       }
 
@@ -156,17 +155,17 @@ const initAdminRoutes = (db) => {
         if (!validStatuses.includes(status)) {
           return res.status(400).json({ error: 'Invalid status. Must be: active, inactive, or suspended' });
         }
-        updates.push('status = ?');
+        updates.push(`status = $${updates.length + 1}`);
         values.push(status);
       }
 
       if (name !== undefined) {
-        updates.push('name = ?');
+        updates.push(`name = $${updates.length + 1}`);
         values.push(name);
       }
 
       if (display_name !== undefined) {
-        updates.push('name = ?');
+        updates.push(`name = $${updates.length + 1}`);
         values.push(display_name);
       }
 
@@ -176,7 +175,7 @@ const initAdminRoutes = (db) => {
 
       values.push(id);
 
-      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${updates.length + 1}`;
       console.log('📝 Update query:', query, values);
 
       const [result] = await db.promise().query(query, values);

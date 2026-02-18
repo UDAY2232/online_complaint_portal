@@ -15,11 +15,12 @@ const processEscalations = async (db) => {
   
   try {
     // Fetch all unresolved complaints
-    const [complaints] = await db.promise().query(`
+    const result = await db.query(`
       SELECT * FROM complaints 
       WHERE status != 'resolved'
       ORDER BY created_at ASC
     `);
+    const complaints = result.rows;
 
     console.log(`⏰ [ESCALATION] Found ${complaints.length} unresolved complaints`);
 
@@ -51,16 +52,16 @@ const processEscalations = async (db) => {
           console.log(`   - New Escalation Level: ${newLevel}`);
 
           // Update complaint with escalation info
-          await db.promise().query(`
+          await db.query(`
             UPDATE complaints 
-            SET escalation_level = ?, escalated_at = NOW()
-            WHERE id = ?
+            SET escalation_level = $1, escalated_at = NOW()
+            WHERE id = $2
           `, [newLevel, complaint.id]);
 
           // Log escalation to history
-          await db.promise().query(`
+          await db.query(`
             INSERT INTO escalation_history (complaint_id, escalation_level, reason, created_at)
-            VALUES (?, ?, ?, NOW())
+            VALUES ($1, $2, $3, NOW())
           `, [
             complaint.id, 
             newLevel, 
@@ -74,10 +75,11 @@ const processEscalations = async (db) => {
           // Send alert to all superadmins for level 2+ escalations
           if (newLevel >= 2) {
             try {
-              const [superadmins] = await db.promise().query(
-                'SELECT email FROM users WHERE role = ? AND status = ?',
+              const result = await db.query(
+                'SELECT email FROM users WHERE role = $1 AND status = $2',
                 ['superadmin', 'active']
               );
+              const superadmins = result.rows;
               
               for (const superadmin of superadmins) {
                 await sendSuperadminEscalationAlert(updatedComplaint, slaCheck.hoursOverdue, superadmin.email);
@@ -108,7 +110,7 @@ const processEscalations = async (db) => {
  */
 const getEscalationStats = async (db) => {
   try {
-    const [stats] = await db.promise().query(`
+    const statsResult = await db.query(`
       SELECT 
         COUNT(*) as total_unresolved,
         SUM(CASE WHEN escalation_level > 0 THEN 1 ELSE 0 END) as total_escalated,
@@ -117,8 +119,9 @@ const getEscalationStats = async (db) => {
       FROM complaints 
       WHERE status != 'resolved'
     `);
+    const stats = statsResult.rows;
 
-    const [byPriority] = await db.promise().query(`
+    const byPriorityResult = await db.query(`
       SELECT 
         priority,
         COUNT(*) as count,
@@ -127,6 +130,7 @@ const getEscalationStats = async (db) => {
       WHERE status != 'resolved'
       GROUP BY priority
     `);
+    const byPriority = byPriorityResult.rows;
 
     return {
       summary: stats[0],

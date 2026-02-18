@@ -42,14 +42,16 @@ const initAuthRoutes = (db) => {
       }
 
       // Debug: Check total users in DB before signup
-      const [countResult] = await db.promise().query('SELECT COUNT(*) as count FROM users');
+      const countResult = await db.query('SELECT COUNT(*) as count FROM users');
+      const countRows = countResult.rows;
       console.log('📝 Current users count in DB:', countResult[0].count);
 
       // Check if user already exists (case-insensitive)
-      const [existing] = await db.promise().query(
-        'SELECT * FROM users WHERE LOWER(email) = LOWER(?)',
+      const existingResult = await db.query(
+        'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
         [email]
       );
+      const existing = existingResult.rows;
 
       if (existing.length > 0) {
         console.log('📝 ❌ User already exists:', email);
@@ -66,20 +68,21 @@ const initAuthRoutes = (db) => {
       console.log('📝 Hash starts with $2:', passwordHash.startsWith('$2') ? 'Yes ✅' : 'No ❌');
 
       // Insert new user (store email in lowercase for consistency)
-      const [result] = await db.promise().query(
+      const result = await db.query(
         `INSERT INTO users (email, password_hash, name, role, email_verified, created_at)
-         VALUES (LOWER(?), ?, ?, ?, FALSE, NOW())`,
+         VALUES (LOWER($1), $2, $3, $4, FALSE, NOW()) RETURNING id`,
         [email, passwordHash, name || null, ROLES.USER]
       );
 
-      console.log('📝 ✅ User created with ID:', result.insertId);
-      console.log('📝 ✅ Rows affected:', result.affectedRows);
+      const userId = result.rows[0].id;
+      console.log('📝 ✅ User created with ID:', userId);
 
       // Debug: Verify user was actually inserted
-      const [verifyInsert] = await db.promise().query(
-        'SELECT id, email, password_hash, role FROM users WHERE id = ?',
-        [result.insertId]
+      const verifyInsertResult = await db.query(
+        'SELECT id, email, password_hash, role FROM users WHERE id = $1',
+        [userId]
       );
+      const verifyInsert = verifyInsertResult.rows;
       
       if (verifyInsert.length > 0) {
         console.log('📝 ✅ VERIFIED: User exists in DB after insert');
@@ -91,7 +94,8 @@ const initAuthRoutes = (db) => {
       }
 
       // Debug: Count users after insert
-      const [countAfter] = await db.promise().query('SELECT COUNT(*) as count FROM users');
+      const countAfterResult = await db.query('SELECT COUNT(*) as count FROM users');
+      const countAfter = countAfterResult.rows;
       console.log('📝 Users count after signup:', countAfter[0].count);
       console.log('========== SIGNUP DEBUG END ==========\n');
 
@@ -105,7 +109,7 @@ const initAuthRoutes = (db) => {
 
       res.status(201).json({
         message: 'User created successfully. Please check your email to verify your account.',
-        userId: result.insertId,
+        userId: userId,
       });
 
     } catch (err) {
@@ -130,18 +134,21 @@ const initAuthRoutes = (db) => {
       }
 
       // Debug: Check total users in DB
-      const [countResult] = await db.promise().query('SELECT COUNT(*) as count FROM users');
+      const countResult = await db.query('SELECT COUNT(*) as count FROM users');
+      const countRows = countResult.rows;
       console.log('🔐 Total users in DB:', countResult[0].count);
 
       // Debug: List all users (emails only) for debugging
-      const [allUsers] = await db.promise().query('SELECT id, email, role FROM users');
+      const allUsersResult = await db.query('SELECT id, email, role FROM users');
+      const allUsers = allUsersResult.rows;
       console.log('🔐 All users in DB:', allUsers.map(u => `${u.id}:${u.email}(${u.role})`).join(', '));
 
       // Find user (case-insensitive email comparison)
-      const [users] = await db.promise().query(
-        'SELECT * FROM users WHERE LOWER(email) = LOWER(?)',
+      const usersResult = await db.query(
+        'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
         [email]
       );
+      const users = usersResult.rows;
 
       console.log('🔐 User found for email "' + email + '":', users.length > 0 ? 'Yes ✅' : 'No ❌');
 

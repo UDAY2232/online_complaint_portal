@@ -21,7 +21,7 @@ const initSuperadminRoutes = (db) => {
   // ================= GET ESCALATED COMPLAINTS =================
   router.get('/escalated-complaints', async (req, res) => {
     try {
-      const [complaints] = await db.promise().query(`
+      const result = await db.query(`
         SELECT c.*, u.name, u.email
         FROM complaints c
         LEFT JOIN users u ON c.user_id = u.id
@@ -29,6 +29,7 @@ const initSuperadminRoutes = (db) => {
         AND c.status != 'resolved'
         ORDER BY c.escalation_level DESC, c.created_at ASC
       `);
+      const complaints = result.rows;
 
       res.json({
         success: true,
@@ -46,7 +47,7 @@ const initSuperadminRoutes = (db) => {
   router.get('/stats', async (req, res) => {
     try {
       // Get overall complaint stats
-      const [overallStats] = await db.promise().query(`
+      const overallStatsResult = await db.query(`
         SELECT 
           COUNT(*) as total_complaints,
           SUM(CASE WHEN status = 'new' THEN 1 ELSE 0 END) as new_complaints,
@@ -59,7 +60,7 @@ const initSuperadminRoutes = (db) => {
       `);
 
       // Get complaints by escalation level
-      const [byEscalationLevel] = await db.promise().query(`
+      const byEscalationLevelResult = await db.query(`
         SELECT 
           escalation_level,
           COUNT(*) as count
@@ -70,7 +71,7 @@ const initSuperadminRoutes = (db) => {
       `);
 
       // Get complaints by priority
-      const [byPriority] = await db.promise().query(`
+      const byPriorityResult = await db.query(`
         SELECT 
           priority,
           COUNT(*) as total,
@@ -81,7 +82,7 @@ const initSuperadminRoutes = (db) => {
       `);
 
       // Get recent escalations (last 7 days)
-      const [recentEscalations] = await db.promise().query(`
+      const recentEscalationsResult = await db.query(`
         SELECT DATE(created_at) as date, COUNT(*) as count
         FROM escalation_history
         WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
@@ -92,7 +93,7 @@ const initSuperadminRoutes = (db) => {
       // Get admin performance (safe query - status_history may not exist)
       let adminPerformance = [];
       try {
-        const [result] = await db.promise().query(`
+        const result = await db.query(`
           SELECT 
             u.id, u.name, u.email,
             COUNT(CASE WHEN c.status = 'resolved' THEN 1 END) as resolved_count,
@@ -103,24 +104,24 @@ const initSuperadminRoutes = (db) => {
           WHERE u.role IN ('admin', 'superadmin') AND u.status = 'active'
           GROUP BY u.id
         `);
-        adminPerformance = result;
+        adminPerformance = result.rows;
       } catch (err) {
         console.log('Admin performance query failed (status_history may not exist):', err.message);
         // Fallback: just list admins without performance data
-        const [admins] = await db.promise().query(`
+        const adminsResult = await db.query(`
           SELECT id, name, email, 0 as resolved_count, NULL as avg_resolution_hours
           FROM users WHERE role IN ('admin', 'superadmin') AND status = 'active'
         `);
-        adminPerformance = admins;
+        adminPerformance = adminsResult.rows;
       }
 
       res.json({
         success: true,
         stats: {
-          overall: overallStats[0],
-          byEscalationLevel,
-          byPriority,
-          recentEscalations,
+          overall: overallStatsResult.rows[0],
+          byEscalationLevel: byEscalationLevelResult.rows,
+          byPriority: byPriorityResult.rows,
+          recentEscalations: recentEscalationsResult.rows,
           adminPerformance
         }
       });
@@ -134,7 +135,7 @@ const initSuperadminRoutes = (db) => {
   // ================= GET ALL ADMINS =================
   router.get('/admins', async (req, res) => {
     try {
-      const [admins] = await db.promise().query(`
+      const adminsResult = await db.query(`
         SELECT id, email, name, role, status, created_at
         FROM users
         WHERE role IN ('admin', 'superadmin')
@@ -143,7 +144,7 @@ const initSuperadminRoutes = (db) => {
 
       res.json({
         success: true,
-        admins
+        admins: adminsResult.rows
       });
 
     } catch (err) {
@@ -158,24 +159,24 @@ const initSuperadminRoutes = (db) => {
       const limit = parseInt(req.query.limit) || 50;
       const offset = parseInt(req.query.offset) || 0;
 
-      const [history] = await db.promise().query(`
+      const historyResult = await db.query(`
         SELECT eh.*, c.category, c.priority, c.status as current_status, 
                u.name as user_name, u.email as user_email
         FROM escalation_history eh
         LEFT JOIN complaints c ON eh.complaint_id = c.id
         LEFT JOIN users u ON c.user_id = u.id
         ORDER BY eh.created_at DESC
-        LIMIT ? OFFSET ?
+        LIMIT $1 OFFSET $2
       `, [limit, offset]);
 
-      const [totalCount] = await db.promise().query(
+      const totalCountResult = await db.query(
         'SELECT COUNT(*) as total FROM escalation_history'
       );
 
       res.json({
         success: true,
-        history,
-        total: totalCount[0].total,
+        history: historyResult.rows,
+        total: totalCountResult.rows[0].total,
         limit,
         offset
       });
@@ -196,10 +197,11 @@ const initSuperadminRoutes = (db) => {
       }
 
       // Get current complaint
-      const [complaints] = await db.promise().query(
-        'SELECT * FROM complaints WHERE id = ?',
+      const complaintsResult = await db.query(
+        'SELECT * FROM complaints WHERE id = $1',
         [complaintId]
       );
+      const complaints = complaintsResult.rows;
 
       if (complaints.length === 0) {
         return res.status(404).json({ error: 'Complaint not found' });
@@ -209,20 +211,20 @@ const initSuperadminRoutes = (db) => {
       const newLevel = (complaint.escalation_level || 0) + 1;
 
       // Update complaint
-      await db.promise().query(`
+      await db.query(`
         UPDATE complaints 
-        SET escalation_level = ?, escalated_at = NOW()
-        WHERE id = ?
+        SET escalation_level = $1, escalated_at = NOW()
+        WHERE id = $2
       `, [newLevel, complaintId]);
 
       // Log to escalation history
-      await db.promise().query(`
+      await db.query(`
         INSERT INTO escalation_history (complaint_id, escalation_level, reason, created_at)
-        VALUES (?, ?, ?, NOW())
+        VALUES ($1, $2, $3, NOW())
       `, [complaintId, newLevel, reason || `Manual escalation by superadmin: ${req.user.email}`]);
 
       // Get updated complaint with user info for notification
-      const [updatedComplaints] = await db.promise().query(`
+      const updatedComplaintsResult = await db.query(`
         SELECT c.*, u.name, u.email
         FROM complaints c
         LEFT JOIN users u ON c.user_id = u.id
@@ -232,7 +234,7 @@ const initSuperadminRoutes = (db) => {
       res.json({
         success: true,
         message: `Complaint #${complaintId} escalated to level ${newLevel}`,
-        complaint: updatedComplaints[0]
+        complaint: updatedComplaintsResult.rows[0]
       });
 
     } catch (err) {
@@ -251,10 +253,11 @@ const initSuperadminRoutes = (db) => {
       }
 
       // Verify admin exists and is active
-      const [admins] = await db.promise().query(
-        'SELECT * FROM users WHERE id = ? AND role IN (?, ?) AND status = ?',
+      const adminsResult = await db.query(
+        'SELECT * FROM users WHERE id = $1 AND role IN ($2, $3) AND status = $4',
         [adminId, 'admin', 'superadmin', 'active']
       );
+      const admins = adminsResult.rows;
 
       if (admins.length === 0) {
         return res.status(404).json({ error: 'Admin not found or inactive' });
@@ -262,10 +265,10 @@ const initSuperadminRoutes = (db) => {
 
       // Try to update complaint with assigned admin (column may not exist)
       try {
-        await db.promise().query(`
+        await db.query(`
           UPDATE complaints 
-          SET assigned_to = ?, assigned_at = NOW()
-          WHERE id = ?
+          SET assigned_to = $1, assigned_at = NOW()
+          WHERE id = $2
         `, [adminId, complaintId]);
       } catch (err) {
         // If assigned_to column doesn't exist, log warning but continue
@@ -274,10 +277,10 @@ const initSuperadminRoutes = (db) => {
 
       // Try to log assignment to status_history (table may not exist)
       try {
-        await db.promise().query(`
+        await db.query(`
           INSERT INTO status_history (complaint_id, old_status, new_status, changed_by, changed_at)
-          SELECT id, status, status, ?, NOW()
-          FROM complaints WHERE id = ?
+          SELECT id, status, status, $1, NOW()
+          FROM complaints WHERE id = $2
         `, [`Assigned to ${admins[0].email}`, complaintId]);
       } catch (err) {
         console.warn('status_history table may not exist:', err.message);
@@ -346,24 +349,24 @@ const initSuperadminRoutes = (db) => {
       // Try with assigned_to join first, fallback to simpler query
       let complaints;
       try {
-        const [result] = await db.promise().query(`
+        const result = await db.query(`
           SELECT c.*, u.name, u.email,
                  assigned.name as assigned_admin_name, assigned.email as assigned_admin_email
           FROM complaints c
           LEFT JOIN users u ON c.user_id = u.id
           LEFT JOIN users assigned ON c.assigned_to = assigned.id
-          WHERE c.id = ?
+          WHERE c.id = $1
         `, [id]);
-        complaints = result;
+        complaints = result.rows;
       } catch (err) {
         // Fallback if assigned_to column doesn't exist
-        const [result] = await db.promise().query(`
+        const result = await db.query(`
           SELECT c.*, u.name, u.email
           FROM complaints c
           LEFT JOIN users u ON c.user_id = u.id
-          WHERE c.id = ?
+          WHERE c.id = $1
         `, [id]);
-        complaints = result;
+        complaints = result.rows;
       }
 
       if (complaints.length === 0) {
@@ -373,12 +376,12 @@ const initSuperadminRoutes = (db) => {
       // Get status history (safe - table may not exist)
       let statusHistory = [];
       try {
-        const [result] = await db.promise().query(`
+        const result = await db.query(`
           SELECT * FROM status_history
-          WHERE complaint_id = ?
+          WHERE complaint_id = $1
           ORDER BY changed_at DESC
         `, [id]);
-        statusHistory = result;
+        statusHistory = result.rows;
       } catch (err) {
         console.log('status_history table may not exist:', err.message);
       }
@@ -386,12 +389,12 @@ const initSuperadminRoutes = (db) => {
       // Get escalation history
       let escalationHistory = [];
       try {
-        const [result] = await db.promise().query(`
+        const result = await db.query(`
           SELECT * FROM escalation_history
-          WHERE complaint_id = ?
+          WHERE complaint_id = $1
           ORDER BY created_at DESC
         `, [id]);
-        escalationHistory = result;
+        escalationHistory = result.rows;
       } catch (err) {
         console.log('escalation_history table may not exist:', err.message);
       }

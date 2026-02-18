@@ -31,26 +31,23 @@ const initPasswordResetRoutes = (db) => {
   // ================= ENSURE PASSWORD_RESETS TABLE EXISTS =================
   const ensurePasswordResetsTable = async () => {
     try {
-      // Check if password_resets table exists
-      const [tables] = await db.promise().query(`
-        SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES 
-        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'password_resets'
+      // Check if password_resets table exists (PostgreSQL version)
+      const result = await db.query(`
+        SELECT table_name FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = 'password_resets'
       `);
-      
+      const tables = result.rows;
       if (tables.length === 0) {
         console.log('📧 Creating password_resets table...');
-        await db.promise().query(`
+        await db.query(`
           CREATE TABLE password_resets (
-            id INT PRIMARY KEY AUTO_INCREMENT,
+            id SERIAL PRIMARY KEY,
             user_id INT NOT NULL,
             token_hash VARCHAR(255) NOT NULL,
             expires_at TIMESTAMP NOT NULL,
             used BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            INDEX idx_token_hash (token_hash),
-            INDEX idx_user_id (user_id),
-            INDEX idx_expires (expires_at)
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
           )
         `);
         console.log('📧 ✅ password_resets table created');
@@ -68,11 +65,11 @@ const initPasswordResetRoutes = (db) => {
   // ================= CLEANUP EXPIRED TOKENS =================
   const cleanupExpiredTokens = async () => {
     try {
-      const [result] = await db.promise().query(
+      const result = await db.query(
         'DELETE FROM password_resets WHERE expires_at < NOW() OR used = TRUE'
       );
-      if (result.affectedRows > 0) {
-        console.log(`📧 🧹 Cleaned up ${result.affectedRows} expired/used password reset tokens`);
+      if (result.rowCount > 0) {
+        console.log(`📧 🧹 Cleaned up ${result.rowCount} expired/used password reset tokens`);
       }
     } catch (err) {
       // Silently handle - table may not exist yet
@@ -115,10 +112,11 @@ const initPasswordResetRoutes = (db) => {
       };
 
       // Find user by email (case-insensitive)
-      const [users] = await db.promise().query(
-        'SELECT id, email, name FROM users WHERE LOWER(email) = ?',
+      const result = await db.query(
+        'SELECT id, email, name FROM users WHERE LOWER(email) = $1',
         [normalizedEmail]
       );
+      const users = result.rows;
 
       console.log('📧 User found:', users.length > 0 ? 'Yes' : 'No');
 
@@ -132,8 +130,8 @@ const initPasswordResetRoutes = (db) => {
       console.log('📧 User ID:', user.id, 'Email:', user.email);
 
       // Invalidate ALL previous reset tokens for this user
-      await db.promise().query(
-        'UPDATE password_resets SET used = TRUE WHERE user_id = ? AND used = FALSE',
+      await db.query(
+        'UPDATE password_resets SET used = TRUE WHERE user_id = $1 AND used = FALSE',
         [user.id]
       );
       console.log('📧 Previous tokens invalidated');
@@ -148,8 +146,8 @@ const initPasswordResetRoutes = (db) => {
       const expiresAt = new Date(Date.now() + TOKEN_EXPIRY_MINUTES * 60 * 1000);
 
       // Store hashed token in password_resets table
-      await db.promise().query(
-        'INSERT INTO password_resets (user_id, token_hash, expires_at, used) VALUES (?, ?, ?, FALSE)',
+      await db.query(
+        'INSERT INTO password_resets (user_id, token_hash, expires_at, used) VALUES ($1, $2, $3, FALSE)',
         [user.id, tokenHash, expiresAt]
       );
       console.log('📧 Reset token stored (expires in', TOKEN_EXPIRY_MINUTES, 'minutes)');

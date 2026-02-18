@@ -106,11 +106,11 @@ const runMigrations = async (db) => {
   for (const migration of migrations) {
     try {
       // Check if migration is needed
-      const [checkResult] = await db.promise().query(migration.check);
+      const checkResult = await db.query(migration.check);
       
-      if (checkResult.length === 0) {
+      if (checkResult.rows.length === 0) {
         console.log(`🔧 [MIGRATION] Running: ${migration.name}`);
-        await db.promise().query(migration.sql);
+        await db.query(migration.sql);
         console.log(`🔧 [MIGRATION] ✅ Completed: ${migration.name}`);
       } else {
         console.log(`🔧 [MIGRATION] ⏭️ Skipped (already exists): ${migration.name}`);
