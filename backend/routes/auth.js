@@ -121,124 +121,63 @@ const initAuthRoutes = (db) => {
   // ================= LOGIN =================
   router.post('/login', async (req, res) => {
     try {
-      const { email, password } = req.body;
+      try {
+        const { email, password } = req.body;
 
-      console.log('\n========== LOGIN DEBUG START ==========');
-      console.log('🔐 Login attempt for:', email);
-      console.log('🔐 Password provided:', password ? `Yes (${password.length} chars)` : 'No');
+        if (!email || !password) {
+          return res.status(400).json({ error: 'Email and password are required' });
+        }
 
-      if (!email || !password) {
-        console.log('🔐 ❌ Missing email or password');
-        console.log('========== LOGIN DEBUG END ==========\n');
-        return res.status(400).json({ error: 'Email and password are required' });
-      }
+        // Query user by email (case-insensitive)
+        const result = await db.query(
+          'SELECT id, email, password_hash, role, name, email_verified, status FROM users WHERE LOWER(email) = LOWER($1)',
+          [email]
+        );
 
-      // Debug: Check total users in DB
-      const countResult = await db.query('SELECT COUNT(*) as count FROM users');
-      const countRows = countResult.rows;
-      console.log('🔐 Total users in DB:', countResult[0].count);
+        if (result.rows.length === 0) {
+          return res.status(401).json({ error: 'Invalid email or password' });
+        }
 
-      // Debug: List all users (emails only) for debugging
-      const allUsersResult = await db.query('SELECT id, email, role FROM users');
-      const allUsers = allUsersResult.rows;
-      console.log('🔐 All users in DB:', allUsers.map(u => `${u.id}:${u.email}(${u.role})`).join(', '));
+        const user = result.rows[0];
 
-      // Find user (case-insensitive email comparison)
-      const usersResult = await db.query(
-        'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
-        [email]
-      );
-      const users = usersResult.rows;
+        // Compare password using bcrypt
+        const validPassword = await bcrypt.compare(password, user.password_hash);
+        if (!validPassword) {
+          return res.status(401).json({ error: 'Invalid email or password' });
+        }
 
-      console.log('🔐 User found for email "' + email + '":', users.length > 0 ? 'Yes ✅' : 'No ❌');
-
-      if (users.length === 0) {
-        console.log('🔐 ❌ LOGIN FAILED: User not found in database');
-        console.log('========== LOGIN DEBUG END ==========\n');
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
-
-      const user = users[0];
-      console.log('🔐 Fetched user:', { id: user.id, email: user.email, role: user.role });
-
-      // Debug: Check password hash validity
-      console.log('🔐 Password hash from DB:');
-      console.log('   - Length:', user.password_hash?.length || 0);
-      console.log('   - Starts with $2:', user.password_hash?.startsWith('$2') ? 'Yes ✅' : 'No ❌');
-      console.log('   - Preview:', user.password_hash?.substring(0, 30) + '...');
-
-      // Verify password
-      console.log('🔐 Comparing passwords...');
-      const validPassword = await bcrypt.compare(password, user.password_hash);
-      console.log('🔐 Password compare result:', validPassword ? 'MATCH ✅' : 'NO MATCH ❌');
-      
-      if (!validPassword) {
-        console.log('🔐 ❌ LOGIN FAILED: Password does not match');
-        console.log('========== LOGIN DEBUG END ==========\n');
-        return res.status(401).json({ error: 'Invalid email or password' });
-      }
-
-      // Check if email is verified (optional - can be enforced or just warned)
-      const emailVerified = user.email_verified;
-
-      // Generate tokens
-      const accessToken = generateAccessToken({
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        name: user.name,  // Include name in token
-      });
-
-      const refreshToken = generateRefreshToken({
-        id: user.id,
-        email: user.email,
-      });
-
-      // Store refresh token
-      refreshTokens.add(refreshToken);
-
-      console.log('🔐 ✅ LOGIN SUCCESS for:', user.email);
-      console.log('🔐 ✅ User role:', user.role);
-      console.log('🔐 ✅ User name:', user.name || 'Not set');
-      console.log('========== LOGIN DEBUG END ==========\n');
-
-      res.json({
-        message: 'Login successful',
-        accessToken,
-        refreshToken,
-        user: {
+        // Generate tokens
+        const accessToken = generateAccessToken({
           id: user.id,
           email: user.email,
-          name: user.name || '',
-          displayName: user.name || '',  // Add displayName for frontend
           role: user.role,
-          emailVerified,
-          status: user.status || 'active',
-        },
-      });
+          name: user.name,
+        });
 
-    } catch (err) {
-      console.error('🔐 ❌ LOGIN ERROR:', err);
-      console.log('========== LOGIN DEBUG END ==========\n');
-      res.status(500).json({ error: 'Login failed: ' + err.message });
-    }
-  });
+        const refreshToken = generateRefreshToken({
+          id: user.id,
+          email: user.email,
+        });
 
-  // ================= REFRESH TOKEN =================
-  router.post('/refresh', async (req, res) => {
-    try {
-      const { refreshToken } = req.body;
+        refreshTokens.add(refreshToken);
 
-      if (!refreshToken) {
-        return res.status(400).json({ error: 'Refresh token required' });
+        res.json({
+          message: 'Login successful',
+          accessToken,
+          refreshToken,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name || '',
+            displayName: user.name || '',
+            role: user.role,
+            emailVerified: user.email_verified,
+            status: user.status || 'active',
+          },
+        });
+      } catch (err) {
+        res.status(500).json({ error: 'Login failed: ' + err.message });
       }
-
-      // Check if token exists in store
-      if (!refreshTokens.has(refreshToken)) {
-        return res.status(401).json({ error: 'Invalid refresh token' });
-      }
-
-      // Verify token
       const decoded = verifyToken(refreshToken);
       if (!decoded || decoded.type !== 'refresh') {
         refreshTokens.delete(refreshToken);
