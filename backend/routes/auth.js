@@ -129,7 +129,7 @@ const initAuthRoutes = (db) => {
 
       // Query user by email (case-insensitive)
       const result = await db.query(
-        'SELECT id, email, password_hash, role, name, email_verified, status FROM users WHERE LOWER(email) = LOWER($1)',
+        'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
         [email]
       );
 
@@ -139,13 +139,12 @@ const initAuthRoutes = (db) => {
 
       const user = result.rows[0];
 
-      // Compare password using bcrypt
-      const validPassword = await bcrypt.compare(password, user.password_hash);
-      if (!validPassword) {
+      // Compare password using bcrypt (assume password field is 'password_hash' in DB)
+      const isMatch = await bcrypt.compare(password, user.password_hash);
+      if (!isMatch) {
         return res.status(401).json({ error: 'Invalid email or password' });
       }
 
-      // Generate tokens
       const accessToken = generateAccessToken({
         id: user.id,
         email: user.email,
