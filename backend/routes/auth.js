@@ -121,91 +121,49 @@ const initAuthRoutes = (db) => {
   // ================= LOGIN =================
   router.post('/login', async (req, res) => {
     try {
-      try {
-        const { email, password } = req.body;
+      const { email, password } = req.body;
 
-        if (!email || !password) {
-          return res.status(400).json({ error: 'Email and password are required' });
-        }
-
-        // Query user by email (case-insensitive)
-        const result = await db.query(
-          'SELECT id, email, password_hash, role, name, email_verified, status FROM users WHERE LOWER(email) = LOWER($1)',
-          [email]
-        );
-
-        if (result.rows.length === 0) {
-          return res.status(401).json({ error: 'Invalid email or password' });
-        }
-
-        const user = result.rows[0];
-
-        // Compare password using bcrypt
-        const validPassword = await bcrypt.compare(password, user.password_hash);
-        if (!validPassword) {
-          return res.status(401).json({ error: 'Invalid email or password' });
-        }
-
-        // Generate tokens
-        const accessToken = generateAccessToken({
-          id: user.id,
-          email: user.email,
-          role: user.role,
-          name: user.name,
-        });
-
-        const refreshToken = generateRefreshToken({
-          id: user.id,
-          email: user.email,
-        });
-
-        refreshTokens.add(refreshToken);
-
-        res.json({
-          message: 'Login successful',
-          accessToken,
-          refreshToken,
-          user: {
-            id: user.id,
-            email: user.email,
-            name: user.name || '',
-            displayName: user.name || '',
-            role: user.role,
-            emailVerified: user.email_verified,
-            status: user.status || 'active',
-          },
-        });
-      } catch (err) {
-        res.status(500).json({ error: 'Login failed: ' + err.message });
-      }
-      const decoded = verifyToken(refreshToken);
-      if (!decoded || decoded.type !== 'refresh') {
-        refreshTokens.delete(refreshToken);
-        return res.status(401).json({ error: 'Invalid refresh token' });
+      if (!email || !password) {
+        return res.status(400).json({ error: 'Email and password are required' });
       }
 
-      // Get user from database
-      const [users] = await db.promise().query(
-        'SELECT * FROM users WHERE id = ?',
-        [decoded.id]
+      // Query user by email (case-insensitive)
+      const result = await db.query(
+        'SELECT id, email, password_hash, role, name, email_verified, status FROM users WHERE LOWER(email) = LOWER($1)',
+        [email]
       );
 
-      if (users.length === 0) {
-        refreshTokens.delete(refreshToken);
-        return res.status(401).json({ error: 'User not found' });
+      if (result.rows.length === 0) {
+        return res.status(401).json({ error: 'Invalid email or password' });
       }
 
-      const user = users[0];
+      const user = result.rows[0];
 
-      // Generate new access token
+      // Compare password using bcrypt
+      const validPassword = await bcrypt.compare(password, user.password_hash);
+      if (!validPassword) {
+        return res.status(401).json({ error: 'Invalid email or password' });
+      }
+
+      // Generate tokens
       const accessToken = generateAccessToken({
         id: user.id,
         email: user.email,
         role: user.role,
+        name: user.name,
       });
 
-      res.json({
+      const refreshToken = generateRefreshToken({
+        id: user.id,
+        email: user.email,
+      });
+
+      refreshTokens.add(refreshToken);
+
+      return res.json({
+        success: true,
         accessToken,
+        refreshToken,
         user: {
           id: user.id,
           email: user.email,
@@ -213,10 +171,8 @@ const initAuthRoutes = (db) => {
           role: user.role,
         },
       });
-
     } catch (err) {
-      console.error('Token refresh error:', err);
-      res.status(500).json({ error: 'Failed to refresh token' });
+      return res.status(500).json({ error: 'Login failed: ' + err.message });
     }
   });
 
