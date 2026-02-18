@@ -201,9 +201,9 @@ const initAuthRoutes = (db) => {
         return res.status(400).json({ error: 'Invalid or expired verification token' });
       }
 
-      // Update user's email_verified status
-      await db.promise().query(
-        'UPDATE users SET email_verified = TRUE WHERE email = ?',
+      // Update user's email_verified status (PostgreSQL syntax)
+      await db.query(
+        'UPDATE users SET email_verified = TRUE WHERE email = $1',
         [decoded.email]
       );
 
@@ -224,11 +224,12 @@ const initAuthRoutes = (db) => {
         return res.status(400).json({ error: 'Email required' });
       }
 
-      // Check if user exists
-      const [users] = await db.promise().query(
-        'SELECT * FROM users WHERE email = ?',
+      // Check if user exists (PostgreSQL syntax)
+      const result = await db.query(
+        'SELECT * FROM users WHERE email = $1',
         [email]
       );
+      const users = result.rows;
 
       if (users.length === 0) {
         // Don't reveal if user exists
@@ -256,10 +257,11 @@ const initAuthRoutes = (db) => {
   // ================= GET CURRENT USER =================
   router.get('/me', authenticate, async (req, res) => {
     try {
-      const [users] = await db.promise().query(
-        'SELECT id, email, name, role, status, email_verified, created_at FROM users WHERE id = ?',
+      const result = await db.query(
+        'SELECT id, email, name, role, status, email_verified, created_at FROM users WHERE id = $1',
         [req.user.id]
       );
+      const users = result.rows;
 
       if (users.length === 0) {
         return res.status(404).json({ error: 'User not found' });
@@ -291,17 +293,18 @@ const initAuthRoutes = (db) => {
       console.log('👤 Profile update for user:', userId, 'New name:', newName);
 
       if (newName !== undefined) {
-        await db.promise().query(
-          'UPDATE users SET name = ? WHERE id = ?',
+        await db.query(
+          'UPDATE users SET name = $1 WHERE id = $2',
           [newName, userId]
         );
       }
 
       // Fetch updated user
-      const [users] = await db.promise().query(
-        'SELECT id, email, name, role, status, email_verified FROM users WHERE id = ?',
+      const result = await db.query(
+        'SELECT id, email, name, role, status, email_verified FROM users WHERE id = $1',
         [userId]
       );
+      const users = result.rows;
 
       if (users.length === 0) {
         return res.status(404).json({ error: 'User not found' });
