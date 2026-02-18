@@ -40,18 +40,19 @@ const runMigrations = async (db) => {
                 WHERE table_schema = current_schema() AND table_name = 'users'`,
       sql: `CREATE TABLE users (
           id SERIAL PRIMARY KEY,
-        email VARCHAR(255) NOT NULL UNIQUE,
-        password_hash VARCHAR(255) NOT NULL,
-        name VARCHAR(255),
-        role ENUM('user', 'admin', 'superadmin') NOT NULL DEFAULT 'user',
-        email_verified BOOLEAN NOT NULL DEFAULT FALSE,
-        reset_token_hash VARCHAR(255) NULL,
-        reset_token_expires TIMESTAMP NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_email (email),
-        INDEX idx_role (role)
-      )`,
+          email VARCHAR(255) NOT NULL UNIQUE,
+          password_hash VARCHAR(255) NOT NULL,
+          name VARCHAR(255),
+          role VARCHAR(20) NOT NULL DEFAULT 'user',
+          email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+          reset_token_hash VARCHAR(255) NULL,
+          reset_token_expires TIMESTAMP NULL,
+          created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          -- Indexes can be created separately in PostgreSQL
+          -- INDEX idx_email (email),
+          -- INDEX idx_role (role)
+        )`,
     },
 
     // Add reset token columns to existing users table
@@ -99,7 +100,7 @@ const runMigrations = async (db) => {
       name: 'Add status to users',
         check: `SELECT column_name FROM information_schema.columns 
                 WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'status'`,
-      sql: "ALTER TABLE users ADD COLUMN status ENUM('active', 'inactive', 'suspended') DEFAULT 'active'",
+      sql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'",
     },
   ];
 
