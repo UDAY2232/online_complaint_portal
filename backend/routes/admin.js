@@ -13,7 +13,7 @@ const { sendStatusChangeEmail } = require('../services/emailService');
 
 /**
  * Initialize admin routes with database connection
- * @param {object} db - MySQL database connection
+ * @param {object} db - PostgreSQL database connection
  */
 const initAdminRoutes = (db) => {
 

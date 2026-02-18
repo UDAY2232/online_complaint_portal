@@ -24,7 +24,7 @@ const TOKEN_EXPIRY_MINUTES = 15;
 
 /**
  * Initialize password reset routes
- * @param {object} db - MySQL database connection
+ * @param {object} db - PostgreSQL database connection
  */
 const initPasswordResetRoutes = (db) => {
 

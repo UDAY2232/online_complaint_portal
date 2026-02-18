@@ -22,7 +22,7 @@ const refreshTokens = new Set();
 
 /**
  * Initialize auth routes with database connection
- * @param {object} db - MySQL database connection
+ * @param {object} db - PostgreSQL database connection
  */
 const initAuthRoutes = (db) => {
 

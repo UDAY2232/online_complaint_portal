@@ -3,7 +3,7 @@
 -- ===============================================
 
 -- Safe ALTER statements (run if columns don't exist)
--- MySQL will error if column exists, handle in application or run conditionally
+
 
 -- ================= PHASE 6: ESCALATION COLUMNS =================
 
@@ -16,29 +16,25 @@
 
 -- ================= PHASE 7: USERS TABLE =================
 
--- Users table for authentication
-CREATE TABLE IF NOT EXISTS users (
-    id INT PRIMARY KEY AUTO_INCREMENT,
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
     password_hash VARCHAR(255) NOT NULL,
     name VARCHAR(255),
-    role ENUM('user', 'admin', 'superadmin') NOT NULL DEFAULT 'user',
+    role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin', 'superadmin')),
     email_verified BOOLEAN NOT NULL DEFAULT FALSE,
     verification_token VARCHAR(500),
     reset_token VARCHAR(500),
     reset_token_expires TIMESTAMP NULL,
     last_login TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_email (email),
-    INDEX idx_role (role)
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- ================= ADMIN WHITELIST =================
 
--- Whitelist of approved admin emails
-CREATE TABLE IF NOT EXISTS admin_whitelist (
-    id INT PRIMARY KEY AUTO_INCREMENT,
+CREATE TABLE admin_whitelist (
+    id SERIAL PRIMARY KEY,
     email VARCHAR(255) NOT NULL UNIQUE,
     added_by INT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -56,35 +52,31 @@ CREATE TABLE IF NOT EXISTS admin_whitelist (
 -- ALTER TABLE escalation_history ADD COLUMN notified_at TIMESTAMP NULL;
 
 -- Or create fresh if doesn't exist:
-CREATE TABLE IF NOT EXISTS escalation_history (
-    id INT PRIMARY KEY AUTO_INCREMENT,
+CREATE TABLE escalation_history (
+    id SERIAL PRIMARY KEY,
     complaint_id INT NOT NULL,
     escalation_level INT NOT NULL DEFAULT 1,
     reason TEXT,
     notified_at TIMESTAMP NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (complaint_id) REFERENCES complaints(id) ON DELETE CASCADE,
-    INDEX idx_complaint (complaint_id),
-    INDEX idx_level (escalation_level)
+    FOREIGN KEY (complaint_id) REFERENCES complaints(id) ON DELETE CASCADE
 );
 
 -- ================= REFRESH TOKENS TABLE (Optional - for production) =================
 
-CREATE TABLE IF NOT EXISTS refresh_tokens (
-    id INT PRIMARY KEY AUTO_INCREMENT,
+CREATE TABLE refresh_tokens (
+    id SERIAL PRIMARY KEY,
     user_id INT NOT NULL,
     token VARCHAR(500) NOT NULL UNIQUE,
     expires_at TIMESTAMP NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_user (user_id),
-    INDEX idx_token (token)
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- ================= AUDIT LOG (Optional - for security) =================
 
-CREATE TABLE IF NOT EXISTS audit_log (
-    id INT PRIMARY KEY AUTO_INCREMENT,
+CREATE TABLE audit_log (
+    id SERIAL PRIMARY KEY,
     user_id INT,
     action VARCHAR(100) NOT NULL,
     resource_type VARCHAR(50),
@@ -92,18 +84,17 @@ CREATE TABLE IF NOT EXISTS audit_log (
     details JSON,
     ip_address VARCHAR(45),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
-    INDEX idx_user (user_id),
-    INDEX idx_action (action),
-    INDEX idx_created (created_at)
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
 -- ================= SEED DATA =================
 
 -- Insert default superadmin (change password immediately after first login!)
 -- Password: 'Admin@123' (bcrypt hash)
-INSERT IGNORE INTO users (email, password_hash, name, role, email_verified) 
-VALUES ('complaintportals@gmail.com', '$2b$10$V8nCXPCClgcjmyI4dmnOFuKWia35p7rd9NlQuT2oSzv/pWKziZaAG', 'System Admin', 'superadmin', TRUE);
+INSERT INTO users (email, password_hash, name, role, email_verified) 
+VALUES ('complaintportals@gmail.com', '$2b$10$V8nCXPCClgcjmyI4dmnOFuKWia35p7rd9NlQuT2oSzv/pWKziZaAG', 'System Admin', 'superadmin', TRUE)
+ON CONFLICT (email) DO NOTHING;
 
 -- Add default admin whitelist
-INSERT IGNORE INTO admin_whitelist (email) VALUES ('complaintportals@gmail.com');
+INSERT INTO admin_whitelist (email) VALUES ('complaintportals@gmail.com')
+ON CONFLICT (email) DO NOTHING;

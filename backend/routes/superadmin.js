@@ -10,7 +10,7 @@ const { sendSuperadminEscalationAlert } = require('../services/emailService');
 
 /**
  * Initialize superadmin routes with database connection
- * @param {object} db - MySQL database connection
+ * @param {object} db - PostgreSQL database connection
  */
 const initSuperadminRoutes = (db) => {
 

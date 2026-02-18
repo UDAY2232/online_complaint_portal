@@ -2,7 +2,7 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const express = require("express");
 const cors = require("cors");
-const mysql = require("mysql2");
+
 
 const upload = require("./utils/multer");
 const cloudinary = require("./utils/cloudinary");
@@ -318,26 +318,9 @@ app.get("/api/email-status", (req, res) => {
   });
 });
 
-// ================= DATABASE =================
 
-// Use connection pool for reliability (handles reconnection automatically)
-const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  port: Number(process.env.DB_PORT),
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  ssl: {
-    rejectUnauthorized: false,
-  },
-  connectTimeout: 30000,
-});
-
-// Use pool as db for all queries
-const db = pool;
+// ================= DATABASE (PostgreSQL) =================
+const db = require("./config/db");
 
 
 
@@ -433,17 +416,17 @@ app.get("/api/complaints", async (req, res) => {
 (async () => {
   try {
     // Test pool connection
-    const [result] = await pool.promise().query('SELECT 1');
-    console.log("✅ MySQL Pool Connected");
-    
+    await db.query('SELECT 1');
+    console.log("✅ Database Pool Connected");
+
     // Run migrations
     await runMigrations(db);
     console.log("✅ Database migrations complete");
-    
+
     // Start the escalation scheduler
     startEscalationScheduler(db);
   } catch (err) {
-    console.error("❌ MySQL connection failed:", err.message);
+    console.error("❌ Database connection failed:", err.message);
     console.error("Retrying in 5 seconds...");
     setTimeout(() => process.exit(1), 5000); // Exit and let process manager restart
   }

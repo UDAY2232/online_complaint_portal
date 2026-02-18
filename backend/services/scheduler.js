@@ -11,7 +11,7 @@ let escalationInterval = null;
 /**
  * Start the escalation scheduler
  * Runs every hour to check for SLA breaches
- * @param {object} db - MySQL database connection
+ * @param {object} db - PostgreSQL database connection
  */
 const startEscalationScheduler = (db) => {
   // Run immediately on startup
@@ -55,7 +55,7 @@ const stopEscalationScheduler = () => {
 
 /**
  * Manually trigger escalation check (for admin use)
- * @param {object} db - MySQL database connection
+ * @param {object} db - PostgreSQL database connection
  */
 const triggerEscalationCheck = async (db) => {
   console.log('⏰ [SCHEDULER] Manual escalation check triggered...');

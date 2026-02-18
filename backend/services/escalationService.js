@@ -8,7 +8,7 @@ const { sendEscalationEmail, sendSuperadminEscalationAlert } = require('./emailS
 
 /**
  * Process escalations for all overdue complaints
- * @param {object} db - MySQL database connection
+ * @param {object} db - PostgreSQL database connection
  */
 const processEscalations = async (db) => {
   console.log('⏰ [ESCALATION] Starting escalation check...');
@@ -104,7 +104,7 @@ const processEscalations = async (db) => {
 
 /**
  * Get escalation statistics
- * @param {object} db - MySQL database connection
+ * @param {object} db - PostgreSQL database connection
  */
 const getEscalationStats = async (db) => {
   try {
