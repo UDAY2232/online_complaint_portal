@@ -243,60 +243,81 @@ app.post(
 
 
 // ================= GET USER COMPLAINTS =================
+app.get("/api/user/complaints", authenticate, async (req, res) => {
 
-app.get(
-  "/api/user/complaints",
-  authenticate,
-  async (req, res) => {
+  try {
 
-    try {
+    console.log("JWT User:", req.user);
 
-      console.log("User:", req.user);
-
-      if (!req.user?.email)
-        return res.status(401).json({
-          error: "Invalid token"
-        });
-
-      const result =
-        await db.query(
-
-          `
-          SELECT
-            id,
-            category,
-            description,
-            email,
-            name,
-            priority,
-            status,
-            problem_image_url,
-            created_at,
-            resolved_at
-          FROM complaints
-          WHERE LOWER(email)=LOWER($1)
-          ORDER BY created_at DESC
-          `,
-
-          [req.user.email]
-
-        );
-
-      res.json(result.rows);
-
-    }
-    catch (err) {
-
-      console.error("Fetch complaints error:", err);
-
-      res.status(500).json({
-        error: err.message
+    // Validate token data
+    if (!req.user) {
+      return res.status(401).json({
+        error: "User not authenticated"
       });
-
     }
+
+    if (!req.user.email) {
+      return res.status(400).json({
+        error: "User email missing in token"
+      });
+    }
+
+    const email = req.user.email.toLowerCase();
+
+    // Check table exists
+ const testQuery = await db.query(`
+  SELECT EXISTS (
+    SELECT FROM information_schema.tables
+    WHERE table_name = 'complaints'
+    AND table_schema = 'public'
+  )
+`);
+
+
+    if (!testQuery.rows[0].exists) {
+      return res.status(500).json({
+        error: "Complaints table does not exist"
+      });
+    }
+
+    // Main query
+    const result = await db.query(`
+  SELECT
+    id,
+    category,
+    description,
+    email,
+    name,
+    priority,
+    status,
+    problem_image_url,
+    created_at,
+    resolved_at
+  FROM complaints
+  WHERE email IS NOT NULL
+  AND LOWER(email) = LOWER($1)
+  ORDER BY created_at DESC
+`, [email]);
+
+
+    console.log("Complaints found:", result.rows.length);
+
+    return res.json(result.rows);
 
   }
-);
+  catch (err) {
+
+    console.error("❌ Complaint fetch error FULL:", err);
+
+    return res.status(500).json({
+      error: err.message,
+      stack: err.stack
+    });
+
+  }
+
+});
+
 
 
 // =======================================================
@@ -461,6 +482,15 @@ app.get("/api/health", async (req, res) => {
 
   }
 
+});
+
+app.get("/api/debug/complaints", async (req, res) => {
+  try {
+    const result = await db.query("SELECT COUNT(*) FROM complaints");
+    res.json(result.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 
