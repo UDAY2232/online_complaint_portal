@@ -392,31 +392,10 @@ const initPasswordResetRoutes = (db) => {
         success: true
       });
 
-        // Clear old reset token columns in users table (if they exist)
-        try {
-          await connection.query(
-            'UPDATE users SET reset_token_hash = NULL, reset_token_expires = NULL WHERE id = ?',
-            [resetRecord.user_id]
-          );
-        } catch (e) {
-          // Columns may not exist, ignore
-        }
 
-        await connection.commit();
-      } catch (txError) {
-        await connection.rollback();
-        throw txError;
-      } finally {
-        connection.release();
-      }
+      // (No MySQL fallback needed)
 
-      console.log('📧 ✅ Password reset completed successfully');
-      console.log('========== RESET PASSWORD END ==========\n');
-
-      return res.json({ 
-        message: 'Password has been reset successfully. You can now login with your new password.',
-        success: true
-      });
+      // Success response already sent above
 
     } catch (err) {
       console.error('📧 ❌ Reset password error:', err);
