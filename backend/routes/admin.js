@@ -137,7 +137,7 @@ const initAdminRoutes = (db) => {
 
       console.log('📝 Update user request:', { id, role, status, name, display_name });
 
-      // Build dynamic update query
+      // Build dynamic update query for PostgreSQL
       const updates = [];
       const values = [];
 
@@ -175,24 +175,18 @@ const initAdminRoutes = (db) => {
 
       values.push(id);
 
-      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${updates.length + 1}`;
+      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${updates.length + 1} RETURNING id, email, name, role, status, email_verified, created_at`;
       console.log('📝 Update query:', query, values);
 
-      const [result] = await db.promise().query(query, values);
+      const result = await db.query(query, values);
 
-      if (result.affectedRows === 0) {
+      if (result.rows.length === 0) {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      // Fetch updated user
-      const [updatedUser] = await db.promise().query(
-        'SELECT id, email, name, role, status, email_verified, created_at FROM users WHERE id = ?',
-        [id]
-      );
-
       res.json({ 
         message: 'User updated successfully',
-        user: updatedUser[0]
+        user: result.rows[0]
       });
     } catch (err) {
       console.error('Update user error:', err);
@@ -208,7 +202,7 @@ const initAdminRoutes = (db) => {
 
       console.log('📝 PATCH user request:', { id, role, status, name, display_name });
 
-      // Build dynamic update query
+      // Build dynamic update query for PostgreSQL
       const updates = [];
       const values = [];
 
@@ -217,7 +211,7 @@ const initAdminRoutes = (db) => {
         if (!validRoles.includes(role)) {
           return res.status(400).json({ error: 'Invalid role. Must be: user, admin, or superadmin' });
         }
-        updates.push('role = ?');
+        updates.push(`role = $${updates.length + 1}`);
         values.push(role);
       }
 
@@ -226,17 +220,17 @@ const initAdminRoutes = (db) => {
         if (!validStatuses.includes(status)) {
           return res.status(400).json({ error: 'Invalid status. Must be: active, inactive, or suspended' });
         }
-        updates.push('status = ?');
+        updates.push(`status = $${updates.length + 1}`);
         values.push(status);
       }
 
       if (name !== undefined) {
-        updates.push('name = ?');
+        updates.push(`name = $${updates.length + 1}`);
         values.push(name);
       }
 
       if (display_name !== undefined) {
-        updates.push('name = ?');
+        updates.push(`name = $${updates.length + 1}`);
         values.push(display_name);
       }
 
@@ -246,24 +240,18 @@ const initAdminRoutes = (db) => {
 
       values.push(id);
 
-      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+      const query = `UPDATE users SET ${updates.join(', ')} WHERE id = $${updates.length + 1} RETURNING id, email, name, role, status, email_verified, created_at`;
       console.log('📝 PATCH query:', query, values);
 
-      const [result] = await db.promise().query(query, values);
+      const result = await db.query(query, values);
 
-      if (result.affectedRows === 0) {
+      if (result.rows.length === 0) {
         return res.status(404).json({ error: 'User not found' });
       }
 
-      // Fetch updated user
-      const [updatedUser] = await db.promise().query(
-        'SELECT id, email, name, role, status, email_verified, created_at FROM users WHERE id = ?',
-        [id]
-      );
-
       res.json({ 
         message: 'User updated successfully',
-        user: updatedUser[0]
+        user: result.rows[0]
       });
     } catch (err) {
       console.error('PATCH user error:', err);
@@ -282,12 +270,12 @@ const initAdminRoutes = (db) => {
         return res.status(400).json({ error: 'Invalid role' });
       }
 
-      const [result] = await db.promise().query(
-        'UPDATE users SET role = ? WHERE id = ?',
+      const result = await db.query(
+        'UPDATE users SET role = $1 WHERE id = $2 RETURNING id',
         [role, id]
       );
 
-      if (result.affectedRows === 0) {
+      if (result.rows.length === 0) {
         return res.status(404).json({ error: 'User not found' });
       }
 
@@ -308,7 +296,7 @@ const initAdminRoutes = (db) => {
         return res.status(400).json({ error: 'Cannot delete your own account' });
       }
 
-      await db.promise().query('DELETE FROM users WHERE id = ?', [id]);
+      await db.query('DELETE FROM users WHERE id = $1', [id]);
 
       res.json({ message: 'User deleted successfully' });
     } catch (err) {
@@ -320,12 +308,12 @@ const initAdminRoutes = (db) => {
   // ================= GET ESCALATED COMPLAINTS =================
   router.get('/escalated-complaints', async (req, res) => {
     try {
-      const [complaints] = await db.promise().query(`
+      const result = await db.query(`
         SELECT * FROM complaints 
         WHERE escalation_level > 0 AND status != 'resolved'
         ORDER BY escalation_level DESC, created_at ASC
       `);
-      res.json(complaints);
+      res.json(result.rows);
     } catch (err) {
       console.error('Get escalated complaints error:', err);
       res.status(500).json({ error: 'Failed to fetch escalated complaints' });
@@ -336,11 +324,11 @@ const initAdminRoutes = (db) => {
   router.get('/complaints/:id/escalation-history', async (req, res) => {
     try {
       const { id } = req.params;
-      const [history] = await db.promise().query(
-        'SELECT * FROM escalation_history WHERE complaint_id = ? ORDER BY created_at DESC',
+      const result = await db.query(
+        'SELECT * FROM escalation_history WHERE complaint_id = $1 ORDER BY created_at DESC',
         [id]
       );
-      res.json(history);
+      res.json(result.rows);
     } catch (err) {
       console.error('Get escalation history error:', err);
       res.status(500).json({ error: 'Failed to fetch escalation history' });
@@ -351,37 +339,41 @@ const initAdminRoutes = (db) => {
   router.get('/dashboard-stats', async (req, res) => {
     try {
       // Total complaints by status
-      const [statusStats] = await db.promise().query(`
+      const statusStatsResult = await db.query(`
         SELECT status, COUNT(*) as count 
         FROM complaints 
         GROUP BY status
       `);
+      const statusStats = statusStatsResult.rows;
 
       // Total complaints by priority
-      const [priorityStats] = await db.promise().query(`
+      const priorityStatsResult = await db.query(`
         SELECT priority, COUNT(*) as count 
         FROM complaints 
         GROUP BY priority
       `);
+      const priorityStats = priorityStatsResult.rows;
 
       // Escalation stats
       const escalationStats = await getEscalationStats(db);
 
       // Recent activity (last 7 days)
-      const [recentActivity] = await db.promise().query(`
+      const recentActivityResult = await db.query(`
         SELECT DATE(created_at) as date, COUNT(*) as count 
         FROM complaints 
-        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        WHERE created_at >= NOW() - INTERVAL '7 days'
         GROUP BY DATE(created_at)
         ORDER BY date DESC
       `);
+      const recentActivity = recentActivityResult.rows;
 
       // Average resolution time
-      const [avgResolution] = await db.promise().query(`
-        SELECT AVG(TIMESTAMPDIFF(HOUR, created_at, resolved_at)) as avg_hours
+      const avgResolutionResult = await db.query(`
+        SELECT AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/3600) as avg_hours
         FROM complaints 
         WHERE status = 'resolved' AND resolved_at IS NOT NULL
       `);
+      const avgResolution = avgResolutionResult.rows;
 
       res.json({
         byStatus: statusStats,
@@ -399,10 +391,10 @@ const initAdminRoutes = (db) => {
   // ================= WHITELIST MANAGEMENT (Superadmin only) =================
   router.get('/admin-whitelist', requireSuperadmin, async (req, res) => {
     try {
-      const [whitelist] = await db.promise().query(
+      const result = await db.query(
         'SELECT * FROM admin_whitelist ORDER BY created_at DESC'
       );
-      res.json(whitelist);
+      res.json(result.rows);
     } catch (err) {
       console.error('Get admin whitelist error:', err);
       res.status(500).json({ error: 'Failed to fetch admin whitelist' });
@@ -417,8 +409,8 @@ const initAdminRoutes = (db) => {
         return res.status(400).json({ error: 'Email required' });
       }
 
-      await db.promise().query(
-        'INSERT INTO admin_whitelist (email, created_at) VALUES (?, NOW())',
+      await db.query(
+        'INSERT INTO admin_whitelist (email, created_at) VALUES ($1, NOW())',
         [email]
       );
 
@@ -436,8 +428,8 @@ const initAdminRoutes = (db) => {
     try {
       const { email } = req.params;
 
-      await db.promise().query(
-        'DELETE FROM admin_whitelist WHERE email = ?',
+      await db.query(
+        'DELETE FROM admin_whitelist WHERE email = $1',
         [email]
       );
 

@@ -30,7 +30,6 @@ const initSuperadminRoutes = (db) => {
         ORDER BY c.escalation_level DESC, c.created_at ASC
       `);
       const complaints = result.rows;
-
       res.json({
         success: true,
         count: complaints.length,

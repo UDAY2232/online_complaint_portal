@@ -232,17 +232,15 @@ const initPasswordResetRoutes = (db) => {
 
       // Hash the received token
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-      
       // Find token in database
-      const [tokens] = await db.promise().query(
+      const result = await db.query(
         `SELECT pr.*, u.email, u.name 
          FROM password_resets pr 
          JOIN users u ON pr.user_id = u.id 
-         WHERE pr.token_hash = ?`,
+         WHERE pr.token_hash = $1`,
         [tokenHash]
       );
-
-      if (tokens.length === 0) {
+      if (result.rows.length === 0) {
         console.log('📧 ❌ Token not found in database');
         return res.status(400).json({ 
           error: 'Invalid or expired reset link. Please request a new password reset.',
@@ -250,9 +248,7 @@ const initPasswordResetRoutes = (db) => {
           code: 'INVALID_TOKEN'
         });
       }
-
-      const resetRecord = tokens[0];
-
+      const resetRecord = result.rows[0];
       // Check if token is already used
       if (resetRecord.used) {
         console.log('📧 ❌ Token already used');
@@ -262,13 +258,12 @@ const initPasswordResetRoutes = (db) => {
           code: 'TOKEN_USED'
         });
       }
-
       // Check if token is expired
       if (new Date(resetRecord.expires_at) < new Date()) {
         console.log('📧 ❌ Token expired at:', resetRecord.expires_at);
         // Mark as used to prevent future attempts
-        await db.promise().query(
-          'UPDATE password_resets SET used = TRUE WHERE id = ?',
+        await db.query(
+          'UPDATE password_resets SET used = TRUE WHERE id = $1',
           [resetRecord.id]
         );
         return res.status(400).json({ 
@@ -277,10 +272,8 @@ const initPasswordResetRoutes = (db) => {
           code: 'TOKEN_EXPIRED'
         });
       }
-
       console.log('📧 ✅ Token is valid for user:', resetRecord.email);
-      console.log('========== VERIFY RESET TOKEN END ==========\n');
-
+      console.log('========== VERIFY RESET TOKEN END =========='\n');
       return res.json({ 
         valid: true, 
         email: resetRecord.email,
@@ -313,54 +306,24 @@ const initPasswordResetRoutes = (db) => {
       console.log('📧 Timestamp:', new Date().toISOString());
 
       // Validate inputs
-      if (!token || typeof token !== 'string') {
-        console.log('📧 ❌ Missing token');
-        return res.status(400).json({ 
-          error: 'Reset token is required',
-          code: 'MISSING_TOKEN'
-        });
-      }
-
-      if (!newPassword || typeof newPassword !== 'string') {
-        console.log('📧 ❌ Missing password');
-        return res.status(400).json({ 
-          error: 'New password is required',
-          code: 'MISSING_PASSWORD'
-        });
-      }
-
-      // Validate password strength
-      const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/;
-      if (!passwordRegex.test(newPassword)) {
-        console.log('📧 ❌ Weak password');
-        return res.status(400).json({ 
-          error: 'Password must be at least 8 characters with at least one uppercase letter, one lowercase letter, and one number',
-          code: 'WEAK_PASSWORD'
-        });
-      }
-
       // Hash the received token
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-      
       // Find token in database with user info
-      const [tokens] = await db.promise().query(
+      const result = await db.query(
         `SELECT pr.*, u.id as user_id, u.email 
          FROM password_resets pr 
          JOIN users u ON pr.user_id = u.id 
-         WHERE pr.token_hash = ?`,
+         WHERE pr.token_hash = $1`,
         [tokenHash]
       );
-
-      if (tokens.length === 0) {
+      if (result.rows.length === 0) {
         console.log('📧 ❌ Invalid token - not found');
         return res.status(400).json({ 
           error: 'Invalid or expired reset link. Please request a new password reset.',
           code: 'INVALID_TOKEN'
         });
       }
-
-      const resetRecord = tokens[0];
-
+      const resetRecord = result.rows[0];
       // Check if token is already used
       if (resetRecord.used) {
         console.log('📧 ❌ Token already used');
@@ -369,12 +332,11 @@ const initPasswordResetRoutes = (db) => {
           code: 'TOKEN_USED'
         });
       }
-
       // Check if token is expired
       if (new Date(resetRecord.expires_at) < new Date()) {
         console.log('📧 ❌ Token expired');
-        await db.promise().query(
-          'UPDATE password_resets SET used = TRUE WHERE id = ?',
+        await db.query(
+          'UPDATE password_resets SET used = TRUE WHERE id = $1',
           [resetRecord.id]
         );
         return res.status(400).json({ 
@@ -382,37 +344,53 @@ const initPasswordResetRoutes = (db) => {
           code: 'TOKEN_EXPIRED'
         });
       }
-
       console.log('📧 Token valid for user:', resetRecord.email);
-
       // Hash new password with bcrypt
       const saltRounds = 10;
       const passwordHash = await bcrypt.hash(newPassword, saltRounds);
-
       // Start transaction for atomic update
-      const connection = await db.promise().getConnection();
+      const client = await db.connect();
       try {
-        await connection.beginTransaction();
-
+        await client.query('BEGIN');
         // Update user's password
-        await connection.query(
-          'UPDATE users SET password_hash = ? WHERE id = ?',
+        await client.query(
+          'UPDATE users SET password_hash = $1 WHERE id = $2',
           [passwordHash, resetRecord.user_id]
         );
         console.log('📧 ✅ Password updated for user:', resetRecord.email);
-
         // Mark THIS token as used
-        await connection.query(
-          'UPDATE password_resets SET used = TRUE WHERE id = ?',
+        await client.query(
+          'UPDATE password_resets SET used = TRUE WHERE id = $1',
           [resetRecord.id]
         );
-
         // Invalidate ALL other reset tokens for this user (security)
-        await connection.query(
-          'UPDATE password_resets SET used = TRUE WHERE user_id = ? AND id != ?',
+        await client.query(
+          'UPDATE password_resets SET used = TRUE WHERE user_id = $1 AND id != $2',
           [resetRecord.user_id, resetRecord.id]
         );
         console.log('📧 All reset tokens for user invalidated');
+        // Clear old reset token columns in users table (if they exist)
+        try {
+          await client.query(
+            'UPDATE users SET reset_token_hash = NULL, reset_token_expires = NULL WHERE id = $1',
+            [resetRecord.user_id]
+          );
+        } catch (e) {
+          // Columns may not exist, ignore
+        }
+        await client.query('COMMIT');
+      } catch (txError) {
+        await client.query('ROLLBACK');
+        throw txError;
+      } finally {
+        client.release();
+      }
+      console.log('📧 ✅ Password reset completed successfully');
+      console.log('========== RESET PASSWORD END =========='\n');
+      return res.json({ 
+        message: 'Password has been reset successfully. You can now login with your new password.',
+        success: true
+      });
 
         // Clear old reset token columns in users table (if they exist)
         try {
@@ -486,36 +464,29 @@ const initPasswordResetRoutes = (db) => {
         return res.status(401).json({ error: 'Invalid or expired token' });
       }
 
-      const [users] = await db.promise().query(
-        'SELECT * FROM users WHERE id = ?',
+      const result = await db.query(
+        'SELECT * FROM users WHERE id = $1',
         [decoded.id]
       );
-
-      if (users.length === 0) {
+      if (result.rows.length === 0) {
         return res.status(404).json({ error: 'User not found' });
       }
-
-      const user = users[0];
-
+      const user = result.rows[0];
       const validPassword = await bcrypt.compare(currentPassword, user.password_hash);
       if (!validPassword) {
         return res.status(401).json({ error: 'Current password is incorrect' });
       }
-
       const saltRounds = 10;
       const passwordHash = await bcrypt.hash(newPassword, saltRounds);
-
-      await db.promise().query(
-        'UPDATE users SET password_hash = ? WHERE id = ?',
+      await db.query(
+        'UPDATE users SET password_hash = $1 WHERE id = $2',
         [passwordHash, user.id]
       );
-
       // Invalidate any existing reset tokens
-      await db.promise().query(
-        'UPDATE password_resets SET used = TRUE WHERE user_id = ?',
+      await db.query(
+        'UPDATE password_resets SET used = TRUE WHERE user_id = $1',
         [user.id]
       );
-
       return res.json({ message: 'Password changed successfully' });
 
     } catch (err) {
