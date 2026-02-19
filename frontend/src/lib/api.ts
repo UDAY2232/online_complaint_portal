@@ -248,9 +248,19 @@ export const api = {
   updateUserRole: (id: number, role: string) =>
     axiosInstance.put(`/admin/users/${id}/role`, { role }),
 
-  // Profile update (save display name to DB)
-  updateProfile: (data: { name?: string; displayName?: string }) =>
-    axiosInstance.put("/auth/profile", data),
+  // Profile update: backend does not provide profile update endpoint for now.
+  // Persist display name locally and return a resolved promise with the updated user object.
+  updateProfile: (data: { name?: string; displayName?: string }) => {
+    const userName = data.name || data.displayName;
+    const user = {
+      name: userName || localStorage.getItem("userName") || null,
+      email: localStorage.getItem("userEmail") || null,
+    };
+    if (userName) {
+      localStorage.setItem("userName", userName);
+    }
+    return Promise.resolve({ data: { user } });
+  },
 
   // Get current user profile from backend (fresh data)
   getCurrentUser: () =>
@@ -264,8 +274,10 @@ export const api = {
   getTrack: (trackingId: string) =>
     axiosInstance.get(`/track/${trackingId}`),
 
+  // Complaint history endpoint is not provided by backend in current API.
+  // Return a rejected promise so callers know it's unsupported.
   getComplaintHistory: (id: number) =>
-    axiosInstance.get(`/complaints/${id}/history`),
+    Promise.reject({ response: { data: { error: "Complaint history endpoint not available on backend" } } }),
 
   // ================= AUTHENTICATION =================
   login: (email: string, password: string) =>
@@ -290,6 +302,7 @@ export const api = {
   resetPassword: (token: string, newPassword: string) =>
     axiosInstance.post("/auth/reset-password", { token, newPassword }),
 
+  // Change password is not supported by backend in current API surface.
   changePassword: (currentPassword: string, newPassword: string) =>
-    axiosInstance.post("/auth/change-password", { currentPassword, newPassword }),
+    Promise.reject({ response: { data: { error: "Change password is not supported by backend" } } }),
 };

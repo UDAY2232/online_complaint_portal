@@ -55,18 +55,11 @@ const StatusTracker = () => {
   }, []);
 
   const openHistory = async (complaintId: number) => {
-    try {
-      // Find the complaint from the list to show its details
-      const complaint = complaints.find(c => c.id === complaintId) || null;
-      setSelectedComplaint(complaint);
-      
-      const res = await api.getComplaintHistory(complaintId);
-      setHistoryData(res.data || []);
-      setIsHistoryOpen(true);
-    } catch (err) {
-      console.error('Failed to load history', err);
-      toast({ title: 'Error', description: 'Failed to load complaint history', variant: 'destructive' });
-    }
+    // Backend does not provide a complaint history endpoint. Use local/basic details only.
+    const complaint = complaints.find(c => c.id === complaintId) || null;
+    setSelectedComplaint(complaint);
+    setHistoryData([]);
+    setIsHistoryOpen(true);
   };
 
   const handleCloseHistory = () => {

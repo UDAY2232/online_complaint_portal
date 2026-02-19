@@ -126,13 +126,8 @@ const UserComplaints = () => {
 
   const openDetails = async (complaint: Complaint) => {
     setSelectedComplaint(complaint);
-    try {
-      const res = await api.getComplaintHistory(complaint.id);
-      setHistoryData(res.data || []);
-    } catch (err) {
-      console.error('Failed to load history', err);
-      setHistoryData([]);
-    }
+    // Backend does not expose a complaint history endpoint. Show local/basic details only.
+    setHistoryData([]);
     setIsDetailsOpen(true);
   };
 

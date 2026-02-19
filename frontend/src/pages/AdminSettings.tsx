@@ -125,36 +125,20 @@ const AdminSettings = () => {
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    
     try {
-      // Save display name to database (not just localStorage)
-      const response = await api.updateProfile({ displayName: name });
-      
-      // Update localStorage with the new name
-      if (response.data?.user?.name) {
-        localStorage.setItem("userName", response.data.user.name);
-      }
-      
-      // If new token is returned, update it
-      if (response.data?.accessToken) {
-        localStorage.setItem("accessToken", response.data.accessToken);
-      }
-      
-      toast({
-        title: "Profile updated",
-        description: "Your admin profile has been saved to the database.",
-      });
-    } catch (error: any) {
-      console.error("Profile update error:", error);
-      
-      // Fallback to localStorage only if API fails
+      // Backend does not provide profile update endpoint. Save locally only.
       if (name) {
         localStorage.setItem("userName", name);
       }
-      
       toast({
-        title: "Warning",
-        description: error.response?.data?.error || "Profile saved locally. Server sync may have failed.",
+        title: "Profile updated",
+        description: "Profile saved locally (server sync not available).",
+      });
+    } catch (error: any) {
+      console.error("Profile update error:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save profile locally.",
         variant: "destructive",
       });
     } finally {
@@ -194,28 +178,13 @@ const AdminSettings = () => {
     }
     
     setIsChangingPassword(true);
-    
-    try {
-      await api.changePassword(currentPassword, newPassword);
-      
-      toast({
-        title: "Password changed",
-        description: "Your admin password has been changed successfully.",
-      });
-      
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-    } catch (error: any) {
-      const message = error.response?.data?.error || "Failed to change password.";
-      toast({
-        title: "Error",
-        description: message,
-        variant: "destructive",
-      });
-    } finally {
-      setIsChangingPassword(false);
-    }
+    // Change password is not supported by backend. Notify user and skip API call.
+    toast({
+      title: "Not supported",
+      description: "Change password is not supported by the backend at this time.",
+      variant: "destructive",
+    });
+    setIsChangingPassword(false);
   };
 
   const handleSystemSettingChange = (key: string, value: string | boolean) => {
