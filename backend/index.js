@@ -146,18 +146,40 @@ app.post(
 
 // GET user complaints
 app.get("/api/user/complaints", authenticate, async (req, res) => {
-  try {
-    console.log('/api/user/complaints called - user:', req.user && req.user.email);
-    const email = req.user && req.user.email;
-    if (!email) return res.status(400).json({ error: "Missing user email" });
 
-    const result = await db.query("SELECT * FROM complaints WHERE email=$1 ORDER BY created_at DESC", [email]);
+  try {
+
+    console.log("User from token:", req.user);
+
+    if (!req.user.email) {
+      return res.status(400).json({
+        error: "Email missing in token"
+      });
+    }
+
+    const result = await db.query(
+      `
+      SELECT *
+      FROM complaints
+      WHERE email = $1
+      ORDER BY created_at DESC
+      `,
+      [req.user.email]
+    );
+
     res.json(result.rows);
-  } catch (err) {
-    console.error('/api/user/complaints error:', err && err.stack ? err.stack : err);
-    // provide a clearer error message for debugging (non-sensitive)
-    res.status(500).json({ error: 'Server error while loading complaints' });
+
   }
+  catch (err) {
+
+    console.error("Complaint fetch error:", err);
+
+    res.status(500).json({
+      error: err.message
+    });
+
+  }
+
 });
 
 // ================= ADMIN ROUTES =================
