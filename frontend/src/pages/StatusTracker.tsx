@@ -33,7 +33,8 @@ const StatusTracker = () => {
   useEffect(() => {
     const fetchComplaints = async () => {
       try {
-        const res = await api.getComplaints();
+        // Use protected endpoint to get only this user's complaints
+        const res = await api.getUserComplaints();
         const data = res.data.map((c: any) => ({
           ...c,
           date: c.date || c.created_at,
@@ -42,12 +43,10 @@ const StatusTracker = () => {
           resolved_image_url: c.resolved_image_url ?? null,
           problem_image_url: c.problem_image_url ?? null,
         }));
-        const filtered = data.filter((c: any) => c.email === userEmail);
-        setComplaints(filtered.reverse());
+        // backend already filters by user
+        setComplaints(data.reverse());
       } catch (err) {
-        console.error("Failed to load complaints from API, falling back to localStorage", err);
-        const stored = JSON.parse(localStorage.getItem("complaints") || "[]");
-        setComplaints(stored.filter((c: any) => c.name === (userEmail || "User")).reverse());
+        console.error('Failed to load complaints', err);
         toast({ title: 'Error', description: 'Failed to load complaints from server', variant: 'destructive' });
       }
     };

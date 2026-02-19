@@ -168,7 +168,7 @@ export const api = {
   // ================= COMPLAINTS =================
   // Get all complaints (admin use)
   getComplaints: () =>
-    axiosInstance.get("/complaints"),
+    axiosInstance.get("/admin/complaints"),
 
   // ✅ Get only logged-in user's complaints (protected endpoint)
   getUserComplaints: () =>

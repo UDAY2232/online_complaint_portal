@@ -23,9 +23,9 @@ const AdminReports = () => {
         // Reports should reflect user-raised complaints only
         setComplaints(normalized.filter((c: any) => !c.is_anonymous));
       } catch (error) {
-        console.error('Failed to load complaints for reports, falling back to localStorage', error);
-        const stored = JSON.parse(localStorage.getItem("complaints") || "[]");
-        setComplaints(stored);
+        console.error('Failed to load complaints for reports', error);
+        // Do not fall back to localStorage; show empty dataset and let UI inform the admin
+        setComplaints([]);
       }
     };
     load();

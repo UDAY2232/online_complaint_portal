@@ -5,7 +5,8 @@ export default function Complaints() {
   const [complaints, setComplaints] = useState<any[]>([]);
 
   useEffect(() => {
-    api.getComplaints()
+    // This page should show user-specific complaints if used by regular users
+    api.getUserComplaints()
       .then((res) => setComplaints(res.data || []))
       .catch(() => setComplaints([]));
   }, []);
