@@ -1,3 +1,57 @@
+// ================= USER COMPLAINT SUBMISSION (PROTECTED) =================
+
+app.post("/api/user/complaints", authenticate, upload.single("image"), async (req, res) => {
+  try {
+    const { category, description, priority } = req.body;
+    const email = req.user.email;
+    const name = req.user.name;
+    const userId = req.user.id;
+
+    let imageUrl = null;
+    if (req.file) {
+      const uploadResult = await cloudinary.uploader.upload(
+        `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
+        { folder: "complaints" }
+      );
+      imageUrl = uploadResult.secure_url;
+    }
+
+    const insertResult = await db.query(
+      `INSERT INTO complaints
+      (user_id, category, description, email, name, priority, is_anonymous, status, problem_image_url, created_at)
+      VALUES ($1,$2,$3,$4,$5,$6,FALSE,'new',$7,NOW())
+      RETURNING id`,
+      [
+        userId,
+        category,
+        description,
+        email,
+        name,
+        priority || "low",
+        imageUrl
+      ]
+    );
+
+    const complaintId = insertResult.rows[0].id;
+
+    const complaintResult = await db.query(
+      "SELECT * FROM complaints WHERE id=$1",
+      [complaintId]
+    );
+
+    await sendComplaintSubmissionEmail(complaintResult.rows[0]);
+
+    res.json({
+      success: true,
+      id: complaintId
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: err.message
+    });
+  }
+});
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
