@@ -174,25 +174,29 @@ export const api = {
   getUserComplaints: () =>
     axiosInstance.get("/user/complaints"),
 
-  // 🔥 CREATE COMPLAINT (WITH IMAGE)
+  // 🔥 CREATE COMPLAINT (WITH IMAGE) - use protected user endpoint
   createComplaint: (formData: FormData) =>
-    axiosInstance.post("/complaints", formData, {
+    axiosInstance.post("/user/complaints", formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
+        // Ensure Authorization present for multipart requests (interceptor also adds it)
+        Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
       },
     }),
 
+  // Admin: update complaint status
   updateComplaintStatus: (id: number, status: string, changed_by?: string) =>
-    axiosInstance.put(`/complaints/${id}`, {
+    axiosInstance.put(`/admin/complaints/${id}/status`, {
       status,
       changed_by,
     }),
 
   // 🔥 RESOLVE COMPLAINT (ADMIN - WITH IMAGE)
   resolveComplaint: (id: number, formData: FormData) =>
-    axiosInstance.post(`/complaints/${id}/resolve`, formData, {
+    axiosInstance.put(`/admin/complaints/${id}/resolve`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
+        Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
       },
     }),
 
