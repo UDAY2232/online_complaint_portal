@@ -15,6 +15,7 @@ const { authenticate, requireAdmin } = require("./middleware/auth");
 const initAuthRoutes = require("./routes/auth");
 
 const { sendResolutionEmail, sendComplaintSubmissionEmail } = require("./services/emailService");
+const { runMigrations } = require("./utils/migrations");
 
 // App initialization (must be before any routes)
 const app = express();
@@ -29,10 +30,30 @@ app.use(express.json({ limit: "5mb" }));
     // simple connection check
     await db.query("SELECT 1");
     console.log("✅ PostgreSQL Connected");
+
+    // Run lightweight migrations to ensure required tables/columns exist
+    try {
+      await runMigrations(db);
+    } catch (mErr) {
+      console.error('Migration error:', mErr && mErr.message ? mErr.message : mErr);
+    }
   } catch (err) {
-    console.error("DB ERROR:", err.message);
+    console.error("DB ERROR:", err && err.message ? err.message : err);
+    // If DB is not available we should fail fast so client doesn't receive 500s
+    process.exit(1);
   }
 })();
+
+// Global error handlers to make debugging easier
+process.on('unhandledRejection', (reason, p) => {
+  console.error('Unhandled Rejection at:', p, 'reason:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception thrown:', err && err.stack ? err.stack : err);
+  // it's unsafe to continue running after an uncaught exception
+  process.exit(1);
+});
 
 // ================= AUTH ROUTES =================
 app.use("/api/auth", initAuthRoutes(db));
