@@ -370,6 +370,8 @@ const initPasswordResetRoutes = (db) => {
         );
         console.log('📧 All reset tokens for user invalidated');
         // Clear old reset token columns in users table (if they exist)
+        // (No MySQL fallback needed)
+        // If columns exist, this will work; otherwise, ignore error
         try {
           await client.query(
             'UPDATE users SET reset_token_hash = NULL, reset_token_expires = NULL WHERE id = $1',

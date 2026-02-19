@@ -371,8 +371,8 @@ const initAdminRoutes = (db) => {
       const avgResolutionResult = await db.query(`
         SELECT AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/3600) as avg_hours
         FROM complaints 
-        WHERE status = 'resolved' AND resolved_at IS NOT NULL
-      `);
+        WHERE status = $1 AND resolved_at IS NOT NULL
+      `, ['resolved']);
       const avgResolution = avgResolutionResult.rows;
 
       res.json({

@@ -227,7 +227,7 @@ const initSuperadminRoutes = (db) => {
         SELECT c.*, u.name, u.email
         FROM complaints c
         LEFT JOIN users u ON c.user_id = u.id
-        WHERE c.id = ?
+        WHERE c.id = $1
       `, [complaintId]);
 
       res.json({

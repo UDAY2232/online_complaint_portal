@@ -282,6 +282,57 @@ app.put("/api/admin/complaints/:id/status",
 
 );
 
+ // ================= USER DASHBOARD STATS =================
+
+app.get("/api/user/dashboard", authenticate, async (req, res) => {
+
+  try {
+
+    const email = req.user.email;
+
+    const totalResult = await db.query(
+      "SELECT COUNT(*) FROM complaints WHERE email=$1",
+      [email]
+    );
+
+    const pendingResult = await db.query(
+      "SELECT COUNT(*) FROM complaints WHERE email=$1 AND status='new'",
+      [email]
+    );
+
+    const reviewResult = await db.query(
+      "SELECT COUNT(*) FROM complaints WHERE email=$1 AND status='under-review'",
+      [email]
+    );
+
+    const resolvedResult = await db.query(
+      "SELECT COUNT(*) FROM complaints WHERE email=$1 AND status='resolved'",
+      [email]
+    );
+
+    res.json({
+
+      total: parseInt(totalResult.rows[0].count),
+      pending: parseInt(pendingResult.rows[0].count),
+      underReview: parseInt(reviewResult.rows[0].count),
+      resolved: parseInt(resolvedResult.rows[0].count)
+
+    });
+
+  }
+
+  catch (err) {
+
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message
+    });
+
+  }
+
+});
+
 
 // ================= RESOLVE COMPLAINT =================
 
