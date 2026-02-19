@@ -147,14 +147,16 @@ app.post(
 // GET user complaints
 app.get("/api/user/complaints", authenticate, async (req, res) => {
   try {
+    console.log('/api/user/complaints called - user:', req.user && req.user.email);
     const email = req.user && req.user.email;
     if (!email) return res.status(400).json({ error: "Missing user email" });
 
     const result = await db.query("SELECT * FROM complaints WHERE email=$1 ORDER BY created_at DESC", [email]);
     res.json(result.rows);
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
+    console.error('/api/user/complaints error:', err && err.stack ? err.stack : err);
+    // provide a clearer error message for debugging (non-sensitive)
+    res.status(500).json({ error: 'Server error while loading complaints' });
   }
 });
 
@@ -239,6 +241,19 @@ app.get("/api/health", async (req, res) => {
   } catch (err) {
     console.error("Health check failed:", err.message);
     res.status(500).json({ status: "fail" });
+  }
+});
+
+// Temporary debug endpoint to verify DB connectivity and complaints table
+// REMOVE or protect this endpoint in production
+app.get('/api/debug/db', async (req, res) => {
+  try {
+    const result = await db.query('SELECT COUNT(*) AS complaints_count FROM complaints');
+    const count = result.rows[0] && result.rows[0].complaints_count;
+    res.json({ db: 'ok', complaints_count: parseInt(count, 10) || 0 });
+  } catch (err) {
+    console.error('/api/debug/db error:', err && err.stack ? err.stack : err);
+    res.status(500).json({ error: 'DB query failed', details: err.message });
   }
 });
 
