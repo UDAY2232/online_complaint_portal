@@ -1,57 +1,3 @@
-// ================= USER COMPLAINT SUBMISSION (PROTECTED) =================
-
-app.post("/api/user/complaints", authenticate, upload.single("image"), async (req, res) => {
-  try {
-    const { category, description, priority } = req.body;
-    const email = req.user.email;
-    const name = req.user.name;
-    const userId = req.user.id;
-
-    let imageUrl = null;
-    if (req.file) {
-      const uploadResult = await cloudinary.uploader.upload(
-        `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
-        { folder: "complaints" }
-      );
-      imageUrl = uploadResult.secure_url;
-    }
-
-    const insertResult = await db.query(
-      `INSERT INTO complaints
-      (user_id, category, description, email, name, priority, is_anonymous, status, problem_image_url, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,FALSE,'new',$7,NOW())
-      RETURNING id`,
-      [
-        userId,
-        category,
-        description,
-        email,
-        name,
-        priority || "low",
-        imageUrl
-      ]
-    );
-
-    const complaintId = insertResult.rows[0].id;
-
-    const complaintResult = await db.query(
-      "SELECT * FROM complaints WHERE id=$1",
-      [complaintId]
-    );
-
-    await sendComplaintSubmissionEmail(complaintResult.rows[0]);
-
-    res.json({
-      success: true,
-      id: complaintId
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      error: err.message
-    });
-  }
-});
 const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 
@@ -61,20 +7,20 @@ const cors = require("cors");
 const upload = require("./utils/multer");
 const cloudinary = require("./utils/cloudinary");
 
-const { runMigrations } = require("./utils/migrations");
-const { startEscalationScheduler } = require("./services/scheduler");
+const db = require("./config/db");
 
 const {
-  initializeTransporter,
-  sendResolutionEmail: sendResolutionEmailService,
-  sendComplaintSubmissionEmail
-} = require("./services/emailService");
-
-const { authenticate, requireAdmin } = require("./middleware/auth");
+  authenticate,
+  requireAdmin,
+  requireSuperAdmin
+} = require("./middleware/auth");
 
 const initAuthRoutes = require("./routes/auth");
 
-const db = require("./config/db");
+const {
+  sendResolutionEmail,
+  sendComplaintSubmissionEmail
+} = require("./services/emailService");
 
 const app = express();
 
@@ -82,26 +28,23 @@ app.use(cors());
 app.use(express.json());
 
 
-// ================= DATABASE TEST =================
+// ================= DATABASE CONNECT =================
 
 (async () => {
+
   try {
 
     await db.query("SELECT 1");
 
     console.log("✅ PostgreSQL Connected");
 
-    await runMigrations(db);
-
-    console.log("✅ Migrations complete");
-
-    startEscalationScheduler(db);
-
-  } catch (err) {
+  }
+  catch (err) {
 
     console.error("DB ERROR:", err.message);
 
   }
+
 })();
 
 
@@ -110,218 +53,150 @@ app.use(express.json());
 app.use("/api/auth", initAuthRoutes(db));
 
 
-// ================= CREATE COMPLAINT =================
+// ================= USER DASHBOARD =================
 
-app.post("/api/complaints", upload.single("image"), async (req, res) => {
+app.get("/api/user/dashboard", authenticate, async (req, res) => {
 
   try {
 
-    const {
-      category,
-      description,
-      email,
-      name,
-      priority,
-      is_anonymous
-    } = req.body;
+    const email = req.user.email;
 
-    let imageUrl = null;
+    const total =
+      await db.query("SELECT COUNT(*) FROM complaints WHERE email=$1", [email]);
 
-    if (req.file) {
+    const pending =
+      await db.query("SELECT COUNT(*) FROM complaints WHERE email=$1 AND status='new'", [email]);
 
-      const uploadResult = await cloudinary.uploader.upload(
+    const review =
+      await db.query("SELECT COUNT(*) FROM complaints WHERE email=$1 AND status='under-review'", [email]);
 
-        `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
-
-        { folder: "complaints" }
-
-      );
-
-      imageUrl = uploadResult.secure_url;
-
-    }
-
-    // find user id
-
-    let userId = null;
-
-    if (email && is_anonymous !== "true") {
-
-      const result = await db.query(
-
-        "SELECT id FROM users WHERE LOWER(email)=LOWER($1)",
-
-        [email]
-
-      );
-
-      if (result.rows.length > 0)
-
-        userId = result.rows[0].id;
-
-    }
-
-
-    // insert complaint
-
-    const insertResult = await db.query(
-
-      `INSERT INTO complaints
-      (user_id, category, description, email, name, priority, is_anonymous, status, problem_image_url, created_at)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,'new',$8,NOW())
-      RETURNING id`,
-
-      [
-        userId,
-        category,
-        description,
-        email,
-        name,
-        priority || "low",
-        is_anonymous === "true",
-        imageUrl
-      ]
-
-    );
-
-    const complaintId = insertResult.rows[0].id;
-
-
-    // fetch complaint
-
-    const complaintResult = await db.query(
-
-      "SELECT * FROM complaints WHERE id=$1",
-
-      [complaintId]
-
-    );
-
-    const complaint = complaintResult.rows[0];
-
-
-    if (email && is_anonymous !== "true") {
-
-      sendComplaintSubmissionEmail(complaint);
-
-    }
+    const resolved =
+      await db.query("SELECT COUNT(*) FROM complaints WHERE email=$1 AND status='resolved'", [email]);
 
     res.json({
 
-      success: true,
-      id: complaintId
+      total: parseInt(total.rows[0].count),
+      pending: parseInt(pending.rows[0].count),
+      underReview: parseInt(review.rows[0].count),
+      resolved: parseInt(resolved.rows[0].count)
 
     });
 
   }
-
   catch (err) {
 
     console.error(err);
 
-    res.status(500).json({
-
-      error: err.message
-
-    });
+    res.status(500).json({ error: err.message });
 
   }
 
 });
 
 
-// ================= GET ALL COMPLAINTS =================
+// ================= USER CREATE COMPLAINT =================
 
-app.get("/api/complaints", async (req, res) => {
-
-  try {
-
-    const result = await db.query(
-
-      "SELECT * FROM complaints ORDER BY created_at DESC"
-
-    );
-
-    res.json(result.rows);
-
-  }
-
-  catch (err) {
-
-    res.status(500).json({
-
-      error: err.message
-
-    });
-
-  }
-
-});
-
-
-// ================= GET USER COMPLAINTS =================
-
-app.get("/api/user/complaints", authenticate, async (req, res) => {
-
-  try {
-
-    const result = await db.query(
-
-      "SELECT * FROM complaints WHERE email=$1 ORDER BY created_at DESC",
-
-      [req.user.email]
-
-    );
-
-    res.json(result.rows);
-
-  }
-
-  catch (err) {
-
-    res.status(500).json({
-
-      error: err.message
-
-    });
-
-  }
-
-});
-
-
-// ================= UPDATE STATUS =================
-
-app.put("/api/admin/complaints/:id/status",
-
+app.post(
+  "/api/user/complaints",
   authenticate,
-
-  requireAdmin,
-
+  upload.single("image"),
   async (req, res) => {
 
     try {
 
-      const { id } = req.params;
+      const { category, description, priority } = req.body;
 
-      const { status } = req.body;
+      const userId = req.user.id;
+      const email = req.user.email;
+      const name = req.user.name;
 
-      await db.query(
+      let imageUrl = null;
 
-        "UPDATE complaints SET status=$1 WHERE id=$2",
+      if (req.file) {
 
-        [status, id]
+        const uploadResult =
+          await cloudinary.uploader.upload(
 
-      );
+            `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
+            { folder: "complaints" }
+
+          );
+
+        imageUrl = uploadResult.secure_url;
+
+      }
+
+      const result =
+        await db.query(
+
+          `INSERT INTO complaints
+          (user_id, category, description, email, name, priority, is_anonymous, status, problem_image_url, created_at)
+          VALUES ($1,$2,$3,$4,$5,$6,FALSE,'new',$7,NOW())
+          RETURNING id`,
+
+          [
+            userId,
+            category,
+            description,
+            email,
+            name,
+            priority || "low",
+            imageUrl
+          ]
+
+        );
+
+      const complaintId = result.rows[0].id;
+
+      const complaint =
+        await db.query("SELECT * FROM complaints WHERE id=$1", [complaintId]);
+
+      await sendComplaintSubmissionEmail(complaint.rows[0]);
 
       res.json({
 
-        success: true
+        success: true,
+        id: complaintId
+
+      });
+
+    }
+    catch (err) {
+
+      console.error(err);
+
+      res.status(500).json({
+
+        error: err.message
 
       });
 
     }
 
+  }
+);
+
+
+// ================= USER GET COMPLAINTS =================
+
+app.get(
+  "/api/user/complaints",
+  authenticate,
+  async (req, res) => {
+
+    try {
+
+      const result =
+        await db.query(
+
+          "SELECT * FROM complaints WHERE email=$1 ORDER BY created_at DESC",
+          [req.user.email]
+
+        );
+
+      res.json(result.rows);
+
+    }
     catch (err) {
 
       res.status(500).json({
@@ -333,71 +208,87 @@ app.put("/api/admin/complaints/:id/status",
     }
 
   }
-
 );
 
- // ================= USER DASHBOARD STATS =================
 
-app.get("/api/user/dashboard", authenticate, async (req, res) => {
+// ================= ADMIN GET ALL COMPLAINTS =================
 
-  try {
-
-    const email = req.user.email;
-
-    const totalResult = await db.query(
-      "SELECT COUNT(*) FROM complaints WHERE email=$1",
-      [email]
-    );
-
-    const pendingResult = await db.query(
-      "SELECT COUNT(*) FROM complaints WHERE email=$1 AND status='new'",
-      [email]
-    );
-
-    const reviewResult = await db.query(
-      "SELECT COUNT(*) FROM complaints WHERE email=$1 AND status='under-review'",
-      [email]
-    );
-
-    const resolvedResult = await db.query(
-      "SELECT COUNT(*) FROM complaints WHERE email=$1 AND status='resolved'",
-      [email]
-    );
-
-    res.json({
-
-      total: parseInt(totalResult.rows[0].count),
-      pending: parseInt(pendingResult.rows[0].count),
-      underReview: parseInt(reviewResult.rows[0].count),
-      resolved: parseInt(resolvedResult.rows[0].count)
-
-    });
-
-  }
-
-  catch (err) {
-
-    console.error(err);
-
-    res.status(500).json({
-      error: err.message
-    });
-
-  }
-
-});
-
-
-// ================= RESOLVE COMPLAINT =================
-
-app.put("/api/admin/complaints/:id/resolve",
-
+app.get(
+  "/api/admin/complaints",
   authenticate,
-
   requireAdmin,
+  async (req, res) => {
 
+    try {
+
+      const result =
+        await db.query(
+
+          "SELECT * FROM complaints ORDER BY created_at DESC"
+
+        );
+
+      res.json(result.rows);
+
+    }
+    catch (err) {
+
+      res.status(500).json({
+
+        error: err.message
+
+      });
+
+    }
+
+  }
+);
+
+
+// ================= ADMIN UPDATE STATUS =================
+
+app.put(
+  "/api/admin/complaints/:id/status",
+  authenticate,
+  requireAdmin,
+  async (req, res) => {
+
+    try {
+
+      const { id } = req.params;
+      const { status } = req.body;
+
+      await db.query(
+
+        "UPDATE complaints SET status=$1 WHERE id=$2",
+        [status, id]
+
+      );
+
+      res.json({ success: true });
+
+    }
+    catch (err) {
+
+      res.status(500).json({
+
+        error: err.message
+
+      });
+
+    }
+
+  }
+);
+
+
+// ================= ADMIN RESOLVE =================
+
+app.put(
+  "/api/admin/complaints/:id/resolve",
+  authenticate,
+  requireAdmin,
   upload.single("image"),
-
   async (req, res) => {
 
     const client = await db.connect();
@@ -410,23 +301,21 @@ app.put("/api/admin/complaints/:id/resolve",
 
       const resolution = req.body.resolution_message;
 
-
       let imageUrl = null;
 
       if (req.file) {
 
-        const uploadResult = await cloudinary.uploader.upload(
+        const uploadResult =
+          await cloudinary.uploader.upload(
 
-          `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
+            `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
+            { folder: "complaints/resolved" }
 
-          { folder: "complaints/resolved" }
-
-        );
+          );
 
         imageUrl = uploadResult.secure_url;
 
       }
-
 
       await client.query(
 
@@ -441,23 +330,12 @@ app.put("/api/admin/complaints/:id/resolve",
 
       );
 
-
       await client.query("COMMIT");
 
+      const complaint =
+        await db.query("SELECT * FROM complaints WHERE id=$1", [id]);
 
-      const result = await db.query(
-
-        "SELECT * FROM complaints WHERE id=$1",
-
-        [id]
-
-      );
-
-      const complaint = result.rows[0];
-
-
-      await sendResolutionEmailService(complaint);
-
+      await sendResolutionEmail(complaint.rows[0]);
 
       res.json({
 
@@ -466,7 +344,6 @@ app.put("/api/admin/complaints/:id/resolve",
       });
 
     }
-
     catch (err) {
 
       await client.query("ROLLBACK");
@@ -478,7 +355,6 @@ app.put("/api/admin/complaints/:id/resolve",
       });
 
     }
-
     finally {
 
       client.release();
@@ -486,7 +362,6 @@ app.put("/api/admin/complaints/:id/resolve",
     }
 
   }
-
 );
 
 
@@ -505,7 +380,6 @@ app.get("/api/health", async (req, res) => {
     });
 
   }
-
   catch {
 
     res.status(500).json({
@@ -519,12 +393,12 @@ app.get("/api/health", async (req, res) => {
 });
 
 
-// ================= START SERVER =================
+// ================= SERVER =================
 
 const PORT = process.env.PORT || 4000;
 
 app.listen(PORT, () => {
 
-  console.log("Server running on port", PORT);
+  console.log("🚀 Server running on port", PORT);
 
 });
