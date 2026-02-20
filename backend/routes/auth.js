@@ -1,12 +1,11 @@
 /**
  * Authentication Routes - Production Ready
- * PostgreSQL (Neon) + JWT + bcrypt
+ * PostgreSQL (Neon) + JWT + bcrypt + Forgot Password
  */
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const router = express.Router();
-
 
 const {
   generateAccessToken,
@@ -17,7 +16,11 @@ const {
 } = require('../middleware/auth');
 
 const { ROLES } = require('../config/jwt');
-const { sendVerificationEmail } = require('../services/emailService');
+
+const {
+  sendVerificationEmail,
+  sendPasswordResetEmail
+} = require('../services/emailService');
 
 // In production use Redis or DB
 const refreshTokens = new Set();
@@ -26,118 +29,118 @@ const initAuthRoutes = (db) => {
 
   // ================= SIGNUP =================
   router.post('/signup', async (req, res) => {
+
     try {
+
       const { email, password, name } = req.body;
 
-      if (!email || !password) {
-        return res.status(400).json({
-          error: 'Email and password are required'
-        });
-      }
-
-      // Check if user exists
-      const existingResult = await db.query(
-        'SELECT id FROM users WHERE LOWER(email) = LOWER($1)',
-        [email]
-      );
-
-      if (existingResult.rows.length > 0) {
-        return res.status(409).json({
-          error: 'User already exists'
-        });
-      }
-
-      // Hash password
-      const passwordHash = await bcrypt.hash(password, 10);
-
-      // Insert user
-      const insertResult = await db.query(
-        `
-        INSERT INTO users
-        (email, password_hash, name, role, email_verified, created_at)
-        VALUES (LOWER($1), $2, $3, $4, FALSE, NOW())
-        RETURNING id, email, name, role
-        `,
-        [email, passwordHash, name || null, ROLES.USER]
-      );
-
-      const user = insertResult.rows[0];
-
-      // Send verification email (optional)
-      const verificationToken = generateEmailVerificationToken(user.email);
-
-      sendVerificationEmail(user.email, verificationToken)
-        .catch(err => console.error('Email send failed:', err.message));
-
-      return res.status(201).json({
-        success: true,
-        message: 'User created successfully',
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          role: user.role
-        }
-      });
-
-    } catch (err) {
-      console.error('Signup error:', err.message);
-      return res.status(500).json({
-        error: 'Signup failed'
-      });
-    }
-  });
-
-  // ================= LOGIN =================
-  router.post('/login', async (req, res) => {
-    try {
-      const { email, password } = req.body;
-
-      if (!email || !password) {
+      if (!email || !password)
         return res.status(400).json({
           error: 'Email and password required'
         });
-      }
 
-      const result = await db.query(
-        'SELECT * FROM users WHERE LOWER(email) = LOWER($1)',
+      const existing = await db.query(
+        'SELECT id FROM users WHERE LOWER(email)=LOWER($1)',
         [email]
       );
 
-      if (result.rows.length === 0) {
-        return res.status(401).json({
-          error: 'Invalid credentials'
+      if (existing.rows.length > 0)
+        return res.status(409).json({
+          error: 'User already exists'
         });
-      }
+
+      const hash = await bcrypt.hash(password, 10);
+
+      const result = await db.query(
+        `
+        INSERT INTO users
+        (email,password_hash,name,role,email_verified,created_at)
+        VALUES (LOWER($1),$2,$3,$4,FALSE,NOW())
+        RETURNING id,email,name,role
+        `,
+        [email, hash, name || null, ROLES.USER]
+      );
 
       const user = result.rows[0];
 
-      const validPassword = await bcrypt.compare(
+      const verifyTokenEmail =
+        generateEmailVerificationToken(user.email);
+
+      sendVerificationEmail(
+        user.email,
+        verifyTokenEmail
+      ).catch(console.error);
+
+      res.status(201).json({
+        success: true,
+        user
+      });
+
+    }
+    catch (err) {
+
+      console.error(err);
+
+      res.status(500).json({
+        error: 'Signup failed'
+      });
+
+    }
+
+  });
+
+
+  // ================= LOGIN =================
+  router.post('/login', async (req, res) => {
+
+    try {
+
+      const { email, password } = req.body;
+
+      if (!email || !password)
+        return res.status(400).json({
+          error: 'Email and password required'
+        });
+
+      const result = await db.query(
+        'SELECT * FROM users WHERE LOWER(email)=LOWER($1)',
+        [email]
+      );
+
+      if (result.rows.length === 0)
+        return res.status(401).json({
+          error: 'Invalid credentials'
+        });
+
+      const user = result.rows[0];
+
+      const valid = await bcrypt.compare(
         password,
         user.password_hash
       );
 
-      if (!validPassword) {
+      if (!valid)
         return res.status(401).json({
           error: 'Invalid credentials'
         });
-      }
 
-      const accessToken = generateAccessToken({
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        name: user.name
-      });
+      const accessToken =
+        generateAccessToken({
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          name: user.name
+        });
 
-      const refreshToken = generateRefreshToken({
-        id: user.id,
-        email: user.email
-      });
+      const refreshToken =
+        generateRefreshToken({
+          id: user.id,
+          email: user.email
+        });
 
       refreshTokens.add(refreshToken);
 
-      return res.json({
+      res.json({
         success: true,
         accessToken,
         refreshToken,
@@ -149,253 +152,241 @@ const initAuthRoutes = (db) => {
         }
       });
 
-    } catch (err) {
-      console.error('Login error:', err.message);
-      return res.status(500).json({
+    }
+    catch (err) {
+
+      console.error(err);
+
+      res.status(500).json({
         error: 'Login failed'
       });
+
     }
+
   });
+
 
   // ================= LOGOUT =================
   router.post('/logout', (req, res) => {
 
     const { refreshToken } = req.body;
 
-    if (refreshToken) {
+    if (refreshToken)
       refreshTokens.delete(refreshToken);
-    }
 
     res.json({
-      success: true,
-      message: 'Logged out successfully'
+      success: true
     });
 
   });
 
-  // ================= VERIFY EMAIL =================
-  router.get('/verify-email', async (req, res) => {
-    try {
 
-      const { token } = req.query;
-
-      if (!token) {
-        return res.status(400).json({
-          error: 'Token required'
-        });
-      }
-
-      const decoded = verifyToken(token);
-
-      if (!decoded) {
-        return res.status(400).json({
-          error: 'Invalid token'
-        });
-      }
-
-      await db.query(
-        'UPDATE users SET email_verified = TRUE WHERE email = $1',
-        [decoded.email]
-      );
-
-      res.json({
-        success: true,
-        message: 'Email verified'
-      });
-
-    } catch (err) {
-
-      console.error(err.message);
-
-      res.status(500).json({
-        error: 'Verification failed'
-      });
-
-    }
-  });
-
-  // ================= CURRENT USER =================
+  // ================= GET CURRENT USER =================
   router.get('/me', authenticate, async (req, res) => {
 
     try {
 
       const result = await db.query(
         `
-        SELECT id, email, name, role, email_verified, created_at
+        SELECT id,email,name,role,email_verified
         FROM users
-        WHERE id = $1
+        WHERE id=$1
         `,
         [req.user.id]
       );
 
-      if (result.rows.length === 0) {
+      if (result.rows.length === 0)
         return res.status(404).json({
           error: 'User not found'
         });
-      }
 
       res.json({
         success: true,
         user: result.rows[0]
       });
 
-    } catch (err) {
+    }
+    catch (err) {
 
       res.status(500).json({
-        error: 'Failed to fetch user'
+        error: 'Failed'
       });
 
     }
 
   });
 
+
   // ================= UPDATE PROFILE =================
   router.put('/profile', authenticate, async (req, res) => {
-    try {
-      const { name } = req.body;
 
-      if (typeof name !== 'string') {
-        return res.status(400).json({ error: 'Name is required' });
-      }
+    try {
+
+      const { name } = req.body;
 
       const result = await db.query(
         `
         UPDATE users
-        SET name = $1
-        WHERE id = $2
-        RETURNING id, email, name, role
+        SET name=$1
+        WHERE id=$2
+        RETURNING id,email,name,role
         `,
         [name, req.user.id]
       );
 
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'User not found' });
-      }
-
       res.json({
         success: true,
-        user: result.rows[0],
+        user: result.rows[0]
       });
 
-    } catch (err) {
-      console.error('Update profile error:', err.message);
-      res.status(500).json({ error: 'Failed to update profile' });
     }
+    catch {
+
+      res.status(500).json({
+        error: 'Update failed'
+      });
+
+    }
+
   });
 
+
   // ================= CHANGE PASSWORD =================
- // ================= CHANGE PASSWORD =================
+  router.post('/change-password', authenticate, async (req, res) => {
 
-// support BOTH change-password and change_password
+    try {
 
-router.post(['/change-password', '/change_password'], authenticate, async (req, res) => {
-  try {
+      const { currentPassword, newPassword } = req.body;
 
-    const { currentPassword, newPassword } = req.body;
+      const result = await db.query(
+        'SELECT password_hash FROM users WHERE id=$1',
+        [req.user.id]
+      );
 
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({
-        error: 'currentPassword and newPassword are required'
+      const valid =
+        await bcrypt.compare(
+          currentPassword,
+          result.rows[0].password_hash
+        );
+
+      if (!valid)
+        return res.status(400).json({
+          error: 'Wrong password'
+        });
+
+      const hash =
+        await bcrypt.hash(newPassword, 10);
+
+      await db.query(
+        'UPDATE users SET password_hash=$1 WHERE id=$2',
+        [hash, req.user.id]
+      );
+
+      res.json({
+        success: true
       });
+
+    }
+    catch {
+
+      res.status(500).json({
+        error: 'Failed'
+      });
+
     }
 
-    const userResult = await db.query(
-      'SELECT password_hash FROM users WHERE id = $1',
-      [req.user.id]
-    );
+  });
 
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({
-        error: 'User not found'
+
+  // ================= FORGOT PASSWORD =================
+  router.post('/forgot-password', async (req, res) => {
+
+    try {
+
+      const { email } = req.body;
+
+      const result = await db.query(
+        'SELECT id,email,name FROM users WHERE LOWER(email)=LOWER($1)',
+        [email]
+      );
+
+      if (result.rows.length === 0)
+        return res.status(404).json({
+          error: 'User not found'
+        });
+
+      const user = result.rows[0];
+
+      const token =
+        generateAccessToken({
+          id: user.id,
+          email: user.email,
+          type: 'password-reset'
+        });
+
+      const resetUrl =
+        `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
+
+      await sendPasswordResetEmail(
+        user.email,
+        user.name,
+        resetUrl,
+        15
+      );
+
+      res.json({
+        success: true
       });
+
+    }
+    catch (err) {
+
+      console.error(err);
+
+      res.status(500).json({
+        error: 'Email failed'
+      });
+
     }
 
-    const valid = await bcrypt.compare(
-      currentPassword,
-      userResult.rows[0].password_hash
-    );
+  });
 
-    if (!valid) {
-      return res.status(400).json({
-        error: 'Incorrect current password'
+
+  // ================= RESET PASSWORD =================
+  router.post('/reset-password', async (req, res) => {
+
+    try {
+
+      const { token, newPassword } = req.body;
+
+      const decoded = verifyToken(token);
+
+      const hash =
+        await bcrypt.hash(newPassword, 10);
+
+      await db.query(
+        'UPDATE users SET password_hash=$1 WHERE id=$2',
+        [hash, decoded.id]
+      );
+
+      res.json({
+        success: true
       });
+
+    }
+    catch {
+
+      res.status(500).json({
+        error: 'Reset failed'
+      });
+
     }
 
-    const newHash = await bcrypt.hash(newPassword, 10);
+  });
 
-    await db.query(
-      'UPDATE users SET password_hash = $1 WHERE id = $2',
-      [newHash, req.user.id]
-    );
-
-    res.json({
-      success: true,
-      message: 'Password updated successfully'
-    });
-
-  } catch (err) {
-
-    console.error(err);
-
-    res.status(500).json({
-      error: 'Failed to change password'
-    });
-
-  }
-});
-
-
-// ================= FORGOT PASSWORD =================
-router.post('/forgot-password', async (req, res) => {
-
-  try {
-
-    const { email } = req.body;
-
-    if (!email) {
-      return res.status(400).json({
-        error: 'Email is required'
-      });
-    }
-
-    const result = await db.query(
-      'SELECT id, email FROM users WHERE LOWER(email)=LOWER($1)',
-      [email]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        error: 'User not found'
-      });
-    }
-
-    const user = result.rows[0];
-
-    // generate reset token
-    const resetToken = generateEmailVerificationToken(user.email);
-
-    // send email (reuse existing email service)
-    await sendVerificationEmail(user.email, resetToken);
-
-    res.json({
-      success: true,
-      message: 'Password reset link sent to email'
-    });
-
-  }
-  catch (err) {
-
-    console.error('Forgot password error:', err.message);
-
-    res.status(500).json({
-      error: 'Failed to send reset email'
-    });
-
-  }
-
-});
 
   return router;
+
 };
 
 module.exports = initAuthRoutes;
