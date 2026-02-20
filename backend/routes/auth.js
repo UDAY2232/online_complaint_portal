@@ -1,10 +1,12 @@
 /**
- * Authentication Routes - Production Ready
- * PostgreSQL (Neon) + JWT + bcrypt + Forgot Password
+ * Authentication Routes - FINAL PRODUCTION READY
+ * PostgreSQL (Neon) + JWT + bcrypt + Forgot Password + Reset Password
  */
 
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+
 const router = express.Router();
 
 const {
@@ -22,7 +24,7 @@ const {
   sendPasswordResetEmail
 } = require('../services/emailService');
 
-// In production use Redis or DB
+// store refresh tokens (production → use Redis)
 const refreshTokens = new Set();
 
 const initAuthRoutes = (db) => {
@@ -63,6 +65,7 @@ const initAuthRoutes = (db) => {
 
       const user = result.rows[0];
 
+      // send verification email
       const verifyTokenEmail =
         generateEmailVerificationToken(user.email);
 
@@ -76,8 +79,7 @@ const initAuthRoutes = (db) => {
         user
       });
 
-    }
-    catch (err) {
+    } catch (err) {
 
       console.error(err);
 
@@ -114,10 +116,11 @@ const initAuthRoutes = (db) => {
 
       const user = result.rows[0];
 
-      const valid = await bcrypt.compare(
-        password,
-        user.password_hash
-      );
+      const valid =
+        await bcrypt.compare(
+          password,
+          user.password_hash
+        );
 
       if (!valid)
         return res.status(401).json({
@@ -152,8 +155,7 @@ const initAuthRoutes = (db) => {
         }
       });
 
-    }
-    catch (err) {
+    } catch (err) {
 
       console.error(err);
 
@@ -181,7 +183,7 @@ const initAuthRoutes = (db) => {
   });
 
 
-  // ================= GET CURRENT USER =================
+  // ================= CURRENT USER =================
   router.get('/me', authenticate, async (req, res) => {
 
     try {
@@ -205,8 +207,7 @@ const initAuthRoutes = (db) => {
         user: result.rows[0]
       });
 
-    }
-    catch (err) {
+    } catch {
 
       res.status(500).json({
         error: 'Failed'
@@ -239,8 +240,7 @@ const initAuthRoutes = (db) => {
         user: result.rows[0]
       });
 
-    }
-    catch {
+    } catch {
 
       res.status(500).json({
         error: 'Update failed'
@@ -252,11 +252,16 @@ const initAuthRoutes = (db) => {
 
 
   // ================= CHANGE PASSWORD =================
-  router.post('/change-password', authenticate, async (req, res) => {
+  router.all(['/change-password', '/change_password'], authenticate, async (req, res) => {
 
     try {
 
       const { currentPassword, newPassword } = req.body;
+
+      if (!currentPassword || !newPassword)
+        return res.status(400).json({
+          error: 'Both passwords required'
+        });
 
       const result = await db.query(
         'SELECT password_hash FROM users WHERE id=$1',
@@ -271,7 +276,7 @@ const initAuthRoutes = (db) => {
 
       if (!valid)
         return res.status(400).json({
-          error: 'Wrong password'
+          error: 'Wrong current password'
         });
 
       const hash =
@@ -283,11 +288,11 @@ const initAuthRoutes = (db) => {
       );
 
       res.json({
-        success: true
+        success: true,
+        message: 'Password changed successfully'
       });
 
-    }
-    catch {
+    } catch {
 
       res.status(500).json({
         error: 'Failed'
@@ -300,110 +305,129 @@ const initAuthRoutes = (db) => {
 
   // ================= FORGOT PASSWORD =================
   router.post('/forgot-password', async (req, res) => {
+
     try {
+
       const { email } = req.body;
 
-      if (!email || typeof email !== 'string') {
-        return res.status(400).json({ error: 'Email is required' });
-      }
+      if (!email)
+        return res.status(400).json({
+          error: 'Email required'
+        });
 
-      // Find user by email (case-insensitive)
       const result = await db.query(
-        'SELECT id, email, name FROM users WHERE LOWER(email) = LOWER($1)',
-        [email.trim()]
+        'SELECT id,email,name FROM users WHERE LOWER(email)=LOWER($1)',
+        [email]
       );
 
-      // Always return the same success response to avoid email enumeration
-      const successResponse = {
-        success: true,
-        message: 'If an account exists with this email, you will receive a password reset link.'
-      };
-
-      if (result.rows.length === 0) {
-        return res.json(successResponse);
-      }
+      // always return success (security)
+      if (result.rows.length === 0)
+        return res.json({
+          success: true
+        });
 
       const user = result.rows[0];
 
-      // Create a short-lived JWT for password reset
-      const jwt = require('jsonwebtoken');
       const token = jwt.sign(
-        { id: user.id, email: user.email, type: 'password-reset' },
+        {
+          id: user.id,
+          email: user.email,
+          type: 'password-reset'
+        },
         process.env.JWT_SECRET,
         { expiresIn: '15m' }
       );
 
-      // Use a fixed frontend reset URL compatible with the deployed app
-      const resetUrl = `https://online-complaint-portal.vercel.app/reset-password?token=${token}`;
+      const resetUrl =
+        `https://online-complaint-portal.vercel.app/reset-password?token=${token}`;
 
-      // Send password reset email (best-effort)
-      await sendPasswordResetEmail(user.email, user.name, resetUrl, 15).catch(err => {
-        console.error('Password reset email send failed:', err?.message || err);
+      await sendPasswordResetEmail(
+        user.email,
+        user.name,
+        resetUrl,
+        15
+      );
+
+      res.json({
+        success: true
       });
 
-      return res.json(successResponse);
     } catch (err) {
-      console.error('Forgot password error:', err?.message || err);
-      return res.status(500).json({ error: 'Failed to process password reset request' });
-    }
-  });
-  router.get('/verify-reset-token', async (req, res) => {
-    try {
-      const { token } = req.query;
 
-      if (!token || typeof token !== 'string') {
-        return res.status(400).json({ valid: false, error: 'Token missing' });
-      }
+      console.error(err);
+
+      res.status(500).json({
+        error: 'Failed'
+      });
+
+    }
+
+  });
+
+
+  // ================= VERIFY RESET TOKEN =================
+  router.get('/verify-reset-token', async (req, res) => {
+
+    try {
+
+      const { token } = req.query;
 
       const decoded = verifyToken(token);
 
-      if (!decoded || decoded.type !== 'password-reset') {
-        return res.status(400).json({ valid: false, error: 'Invalid or expired token' });
-      }
+      if (!decoded || decoded.type !== 'password-reset')
+        return res.status(400).json({
+          valid: false
+        });
 
-      // Ensure the referenced user still exists
-      const result = await db.query('SELECT email FROM users WHERE id=$1', [decoded.id]);
-      if (result.rows.length === 0) {
-        return res.status(400).json({ valid: false, error: 'Invalid token (user not found)' });
-      }
+      res.json({
+        valid: true
+      });
 
-      return res.json({ valid: true, email: result.rows[0].email });
-    } catch (err) {
-      console.error('Verify reset token error:', err?.message || err);
-      return res.status(400).json({ valid: false, error: 'Token invalid or expired' });
+    } catch {
+
+      res.status(400).json({
+        valid: false
+      });
+
     }
+
   });
 
 
   // ================= RESET PASSWORD =================
   router.post('/reset-password', async (req, res) => {
-    try {
-      const { token, newPassword } = req.body;
 
-      if (!token || !newPassword) {
-        return res.status(400).json({ error: 'Token and newPassword are required' });
-      }
+    try {
+
+      const { token, newPassword } = req.body;
 
       const decoded = verifyToken(token);
 
-      if (!decoded || decoded.type !== 'password-reset') {
-        return res.status(400).json({ error: 'Invalid or expired token' });
-      }
+      if (!decoded)
+        return res.status(400).json({
+          error: 'Invalid token'
+        });
 
-      // Basic password strength check (enforce in frontend as well)
-      if (typeof newPassword !== 'string' || newPassword.length < 8) {
-        return res.status(400).json({ error: 'New password must be at least 8 characters long' });
-      }
+      const hash =
+        await bcrypt.hash(newPassword, 10);
 
-      const hash = await bcrypt.hash(newPassword, 10);
+      await db.query(
+        'UPDATE users SET password_hash=$1 WHERE id=$2',
+        [hash, decoded.id]
+      );
 
-      await db.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, decoded.id]);
+      res.json({
+        success: true
+      });
 
-      return res.json({ success: true, message: 'Password updated' });
-    } catch (err) {
-      console.error('Reset password error:', err?.message || err);
-      return res.status(500).json({ error: 'Failed to reset password' });
+    } catch {
+
+      res.status(500).json({
+        error: 'Failed'
+      });
+
     }
+
   });
 
 
