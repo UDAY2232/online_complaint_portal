@@ -84,7 +84,7 @@ const initSuperadminRoutes = (db) => {
       const recentEscalationsResult = await db.query(`
         SELECT DATE(created_at) as date, COUNT(*) as count
         FROM escalation_history
-        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        WHERE created_at >= NOW() - INTERVAL '7 days'
         GROUP BY DATE(created_at)
         ORDER BY date
       `);
@@ -95,11 +95,11 @@ const initSuperadminRoutes = (db) => {
         const result = await db.query(`
           SELECT 
             u.id, u.name, u.email,
-            COUNT(CASE WHEN c.status = 'resolved' THEN 1 END) as resolved_count,
-            AVG(CASE WHEN c.status = 'resolved' AND c.resolved_at IS NOT NULL 
-                THEN TIMESTAMPDIFF(HOUR, c.created_at, c.resolved_at) END) as avg_resolution_hours
+            COUNT(c.*) FILTER (WHERE c.status = 'resolved') as resolved_count,
+            AVG(EXTRACT(EPOCH FROM (c.resolved_at - c.created_at))/3600) 
+              FILTER (WHERE c.status = 'resolved' AND c.resolved_at IS NOT NULL) as avg_resolution_hours
           FROM users u
-          LEFT JOIN complaints c ON c.status = 'resolved'
+          LEFT JOIN complaints c ON c.user_id = u.id
           WHERE u.role IN ('admin', 'superadmin') AND u.status = 'active'
           GROUP BY u.id
         `);
