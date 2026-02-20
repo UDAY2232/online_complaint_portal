@@ -350,6 +350,56 @@ const initAuthRoutes = (db) => {
     }
 
   });
+router.get('/verify-reset-token', async (req, res) => {
+
+  try {
+
+    const { token } = req.query;
+
+    if (!token)
+      return res.status(400).json({
+        valid: false,
+        error: 'Token missing'
+      });
+
+    const decoded = verifyToken(token);
+
+    if (!decoded || decoded.type !== 'password-reset')
+      return res.status(400).json({
+        valid: false,
+        error: 'Invalid token'
+      });
+
+    // check user exists
+    const result = await db.query(
+      'SELECT id,email FROM users WHERE id=$1',
+      [decoded.id]
+    );
+
+    if (result.rows.length === 0)
+      return res.status(404).json({
+        valid: false,
+        error: 'User not found'
+      });
+
+    res.json({
+      valid: true,
+      email: result.rows[0].email
+    });
+
+  }
+  catch (err) {
+
+    console.error(err);
+
+    res.status(400).json({
+      valid: false,
+      error: 'Token invalid or expired'
+    });
+
+  }
+
+});
 
 
   // ================= RESET PASSWORD =================
