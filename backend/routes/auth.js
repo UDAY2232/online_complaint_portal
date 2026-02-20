@@ -7,6 +7,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const router = express.Router();
 
+
 const {
   generateAccessToken,
   generateRefreshToken,
@@ -283,40 +284,116 @@ const initAuthRoutes = (db) => {
   });
 
   // ================= CHANGE PASSWORD =================
-  router.post('/change-password', authenticate, async (req, res) => {
-    try {
-      const { currentPassword, newPassword } = req.body;
+ // ================= CHANGE PASSWORD =================
 
-      if (!currentPassword || !newPassword) {
-        return res.status(400).json({ error: 'currentPassword and newPassword are required' });
-      }
+// support BOTH change-password and change_password
 
-      const userResult = await db.query(
-        'SELECT password_hash FROM users WHERE id = $1',
-        [req.user.id]
-      );
+router.post(['/change-password', '/change_password'], authenticate, async (req, res) => {
+  try {
 
-      if (userResult.rows.length === 0) {
-        return res.status(404).json({ error: 'User not found' });
-      }
+    const { currentPassword, newPassword } = req.body;
 
-      const valid = await bcrypt.compare(currentPassword, userResult.rows[0].password_hash);
-
-      if (!valid) {
-        return res.status(400).json({ error: 'Incorrect current password' });
-      }
-
-      const newHash = await bcrypt.hash(newPassword, 10);
-
-      await db.query('UPDATE users SET password_hash = $1 WHERE id = $2', [newHash, req.user.id]);
-
-      res.json({ success: true, message: 'Password updated' });
-
-    } catch (err) {
-      console.error('Change password error:', err.message);
-      res.status(500).json({ error: 'Failed to change password' });
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        error: 'currentPassword and newPassword are required'
+      });
     }
-  });
+
+    const userResult = await db.query(
+      'SELECT password_hash FROM users WHERE id = $1',
+      [req.user.id]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
+
+    const valid = await bcrypt.compare(
+      currentPassword,
+      userResult.rows[0].password_hash
+    );
+
+    if (!valid) {
+      return res.status(400).json({
+        error: 'Incorrect current password'
+      });
+    }
+
+    const newHash = await bcrypt.hash(newPassword, 10);
+
+    await db.query(
+      'UPDATE users SET password_hash = $1 WHERE id = $2',
+      [newHash, req.user.id]
+    );
+
+    res.json({
+      success: true,
+      message: 'Password updated successfully'
+    });
+
+  } catch (err) {
+
+    console.error(err);
+
+    res.status(500).json({
+      error: 'Failed to change password'
+    });
+
+  }
+});
+
+
+// ================= FORGOT PASSWORD =================
+router.post('/forgot-password', async (req, res) => {
+
+  try {
+
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        error: 'Email is required'
+      });
+    }
+
+    const result = await db.query(
+      'SELECT id, email FROM users WHERE LOWER(email)=LOWER($1)',
+      [email]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
+
+    const user = result.rows[0];
+
+    // generate reset token
+    const resetToken = generateEmailVerificationToken(user.email);
+
+    // send email (reuse existing email service)
+    await sendVerificationEmail(user.email, resetToken);
+
+    res.json({
+      success: true,
+      message: 'Password reset link sent to email'
+    });
+
+  }
+  catch (err) {
+
+    console.error('Forgot password error:', err.message);
+
+    res.status(500).json({
+      error: 'Failed to send reset email'
+    });
+
+  }
+
+});
 
   return router;
 };
