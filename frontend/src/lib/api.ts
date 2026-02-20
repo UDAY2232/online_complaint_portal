@@ -217,8 +217,19 @@ export const api = {
   getAllAdmins: () =>
     axiosInstance.get("/superadmin/admins"),
 
-  getEscalationHistory: () =>
-    axiosInstance.get("/superadmin/escalation-history"),
+  getEscalationHistory: async () => {
+    const response = await axiosInstance.get("/superadmin/escalation-history");
+
+    return {
+      data: {
+        success: response.data?.success ?? true,
+        history: Array.isArray(response.data?.history) ? response.data.history : [],
+        total: response.data?.total ?? 0,
+        limit: response.data?.limit ?? 50,
+        offset: response.data?.offset ?? 0,
+      },
+    };
+  },
 
   manualEscalate: (complaintId: number, reason: string) =>
     axiosInstance.post("/superadmin/escalate", { complaintId, reason }),

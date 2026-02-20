@@ -34,21 +34,31 @@ const EscalationHistory = () => {
     fetchEscalations();
   }, []);
 
-  const fetchEscalations = async () => {
-    try {
-      const response = await api.getEscalations();
-      setEscalations(response.data || []);
-    } catch (error: any) {
-      console.error("Error fetching escalations:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load escalation history",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+const fetchEscalations = async () => {
+  try {
+    setLoading(true);
+
+    const response = await api.getEscalationHistory();
+
+    console.log("Escalation history response:", response.data);
+
+    const history = Array.isArray(response.data?.history) ? response.data.history : [];
+
+    setEscalations(history);
+  } catch (error: any) {
+    console.error("Escalation history error:", error?.response?.data || error);
+
+    toast({
+      title: "Error",
+      description: "Failed to load escalation history",
+      variant: "destructive",
+    });
+
+    setEscalations([]);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const getPriorityColor = (priority?: string) => {
     switch (priority) {
@@ -93,71 +103,77 @@ const EscalationHistory = () => {
                   </CardContent>
                 </Card>
               ) : (
-                escalations.map((escalation) => (
-                  <Card key={escalation.id} className="border-l-4 border-l-red-500">
-                    <CardHeader>
-                      <CardTitle className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <span>Complaint #{escalation.id}</span>
-                          <Badge className={getPriorityColor(escalation.priority)}>
-                            {escalation.priority?.toUpperCase()}
-                          </Badge>
-                        </div>
-                        {getEscalationBadge(escalation.escalation_level)}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-sm font-medium">Category</p>
-                          <p className="text-sm text-muted-foreground">
-                            {escalation.category}
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">Status</p>
-                          <Badge variant="outline">{escalation.status}</Badge>
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">Description</p>
-                        <p className="text-sm text-muted-foreground line-clamp-2">
-                          {escalation.description}
-                        </p>
-                      </div>
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <p className="text-sm font-medium">Submitted</p>
-                          <p className="text-sm text-muted-foreground">
-                            {escalation.created_at ? new Date(escalation.created_at).toLocaleString() : 'N/A'}
-                          </p>
+                escalations.map((escalation, idx) => {
+                  const key = escalation.id ?? escalation.complaint_id ?? idx;
+
+                  const complaintCategory = escalation?.complaint?.category ?? escalation.category ?? '—';
+                  const priority = escalation?.complaint?.priority ?? escalation.priority ?? 'unknown';
+                  const status = escalation?.complaint?.status ?? escalation.status ?? 'Unknown';
+                  const description = escalation?.complaint?.description ?? escalation.description ?? '';
+                  const createdAt = escalation?.created_at ?? escalation?.escalated_at ?? null;
+                  const escalatedAt = escalation?.escalated_at ?? escalation?.created_at ?? null;
+                  const escalationReason = escalation?.escalation_reason ?? escalation?.reason ?? null;
+                  const userEmail = escalation?.user?.email ?? escalation?.email ?? null;
+
+                  return (
+                    <Card key={key} className="border-l-4 border-l-red-500">
+                      <CardHeader>
+                        <CardTitle className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <span>Complaint #{escalation.complaint_id ?? escalation.id ?? '—'}</span>
+                            <Badge className={getPriorityColor(priority)}>
+                              {(priority || 'unknown').toString().toUpperCase()
+                            }
+                            </Badge>
+                          </div>
+                          {getEscalationBadge(escalation?.escalation_level ?? 1)}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-sm font-medium">Category</p>
+                            <p className="text-sm text-muted-foreground">{complaintCategory}</p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">Status</p>
+                            <Badge variant="outline">{status}</Badge>
+                          </div>
                         </div>
                         <div>
-                          <p className="text-sm font-medium">Escalated At</p>
-                          <p className="text-sm text-muted-foreground">
-                            {escalation.escalated_at ? new Date(escalation.escalated_at).toLocaleString() : 'N/A'}
-                          </p>
+                          <p className="text-sm font-medium">Description</p>
+                          <p className="text-sm text-muted-foreground line-clamp-2">{description}</p>
                         </div>
-                      </div>
-                      {escalation.escalation_reason && (
-                        <div>
-                          <p className="text-sm font-medium">Escalation Reason</p>
-                          <p className="text-sm text-red-600">
-                            {escalation.escalation_reason}
-                          </p>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <p className="text-sm font-medium">Submitted</p>
+                            <p className="text-sm text-muted-foreground">
+                              {createdAt ? new Date(createdAt).toLocaleString() : 'N/A'}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">Escalated At</p>
+                            <p className="text-sm text-muted-foreground">
+                              {escalatedAt ? new Date(escalatedAt).toLocaleString() : 'N/A'}
+                            </p>
+                          </div>
                         </div>
-                      )}
-                      {escalation.email && (
-                        <div>
-                          <p className="text-sm font-medium">User Email</p>
-                          <p className="text-sm text-muted-foreground">
-                            {escalation.email}
-                          </p>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))
+                        {escalationReason && (
+                          <div>
+                            <p className="text-sm font-medium">Escalation Reason</p>
+                            <p className="text-sm text-red-600">{escalationReason}</p>
+                          </div>
+                        )}
+                        {userEmail && (
+                          <div>
+                            <p className="text-sm font-medium">User Email</p>
+                            <p className="text-sm text-muted-foreground">{userEmail}</p>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })
               )}
             </div>
           </div>
