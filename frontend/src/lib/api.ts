@@ -266,7 +266,7 @@ export const api = {
 
   // Profile update: backend does not provide profile update endpoint for now.
   // Persist display name locally and return a resolved promise with the updated user object.
-  updateProfile: (data: { name?: string; displayName?: string }) => {
+  updateProfile: async (data: { name?: string; displayName?: string }) => {
     const userName = data.name || data.displayName; 
     try {
       const response = await axiosInstance.put('/auth/profile', { name: userName });
