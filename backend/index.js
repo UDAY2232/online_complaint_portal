@@ -17,6 +17,8 @@ const db = require("./config/db");
 const { authenticate, requireAdmin } = require("./middleware/auth");
 
 const initAuthRoutes = require("./routes/auth");
+const initAdminRoutes = require("./routes/admin");
+const initSuperadminRoutes = require("./routes/superadmin");
 
 const {
   sendResolutionEmail,
@@ -71,6 +73,9 @@ process.on("uncaughtException", (err) => {
 // ================= AUTH ROUTES =================
 
 app.use("/api/auth", initAuthRoutes(db));
+// Mount admin and superadmin route modules so frontend can call /api/admin/* and /api/superadmin/*
+app.use("/api/admin", initAdminRoutes(db));
+app.use("/api/superadmin", initSuperadminRoutes(db));
 
 
 // =======================================================
@@ -482,6 +487,31 @@ app.get("/api/health", async (req, res) => {
 
   }
 
+});
+
+// ================= ESCALATIONS (generic listing for admin/superadmin views) =================
+app.get("/api/escalations", authenticate, requireAdmin, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const offset = parseInt(req.query.offset) || 0;
+
+    const result = await db.query(
+      `
+      SELECT eh.id as id, eh.complaint_id, eh.escalation_level, eh.reason as escalation_reason, eh.created_at as escalated_at,
+             c.category, c.description, c.priority, c.status, c.email as complaint_email
+      FROM escalation_history eh
+      LEFT JOIN complaints c ON eh.complaint_id = c.id
+      ORDER BY eh.created_at DESC
+      LIMIT $1 OFFSET $2
+      `,
+      [limit, offset]
+    );
+
+    res.json(result.rows);
+  } catch (err) {
+    console.error('Get /api/escalations error:', err);
+    res.status(500).json({ error: 'Failed to fetch escalations' });
+  }
 });
 
 app.get("/api/debug/complaints", async (req, res) => {
