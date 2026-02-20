@@ -300,138 +300,110 @@ const initAuthRoutes = (db) => {
 
   // ================= FORGOT PASSWORD =================
   router.post('/forgot-password', async (req, res) => {
-
     try {
-
       const { email } = req.body;
 
+      if (!email || typeof email !== 'string') {
+        return res.status(400).json({ error: 'Email is required' });
+      }
+
+      // Find user by email (case-insensitive)
       const result = await db.query(
-        'SELECT id,email,name FROM users WHERE LOWER(email)=LOWER($1)',
-        [email]
+        'SELECT id, email, name FROM users WHERE LOWER(email) = LOWER($1)',
+        [email.trim()]
       );
 
-      if (result.rows.length === 0)
-        return res.status(404).json({
-          error: 'User not found'
-        });
+      // Always return the same success response to avoid email enumeration
+      const successResponse = {
+        success: true,
+        message: 'If an account exists with this email, you will receive a password reset link.'
+      };
+
+      if (result.rows.length === 0) {
+        return res.json(successResponse);
+      }
 
       const user = result.rows[0];
 
-      const token =
-        generateAccessToken({
-          id: user.id,
-          email: user.email,
-          type: 'password-reset'
-        });
-
-      const resetUrl =
-        `${process.env.FRONTEND_URL}/reset-password?token=${token}`;
-
-      await sendPasswordResetEmail(
-        user.email,
-        user.name,
-        resetUrl,
-        15
+      // Create a short-lived JWT for password reset
+      const jwt = require('jsonwebtoken');
+      const token = jwt.sign(
+        { id: user.id, email: user.email, type: 'password-reset' },
+        process.env.JWT_SECRET,
+        { expiresIn: '15m' }
       );
 
-      res.json({
-        success: true
+      // Use a fixed frontend reset URL compatible with the deployed app
+      const resetUrl = `https://online-complaint-portal.vercel.app/reset-password?token=${token}`;
+
+      // Send password reset email (best-effort)
+      await sendPasswordResetEmail(user.email, user.name, resetUrl, 15).catch(err => {
+        console.error('Password reset email send failed:', err?.message || err);
       });
 
+      return res.json(successResponse);
+    } catch (err) {
+      console.error('Forgot password error:', err?.message || err);
+      return res.status(500).json({ error: 'Failed to process password reset request' });
     }
-    catch (err) {
-
-      console.error(err);
-
-      res.status(500).json({
-        error: 'Email failed'
-      });
-
-    }
-
   });
-router.get('/verify-reset-token', async (req, res) => {
+  router.get('/verify-reset-token', async (req, res) => {
+    try {
+      const { token } = req.query;
 
-  try {
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ valid: false, error: 'Token missing' });
+      }
 
-    const { token } = req.query;
+      const decoded = verifyToken(token);
 
-    if (!token)
-      return res.status(400).json({
-        valid: false,
-        error: 'Token missing'
-      });
+      if (!decoded || decoded.type !== 'password-reset') {
+        return res.status(400).json({ valid: false, error: 'Invalid or expired token' });
+      }
 
-    const decoded = verifyToken(token);
+      // Ensure the referenced user still exists
+      const result = await db.query('SELECT email FROM users WHERE id=$1', [decoded.id]);
+      if (result.rows.length === 0) {
+        return res.status(400).json({ valid: false, error: 'Invalid token (user not found)' });
+      }
 
-    if (!decoded || decoded.type !== 'password-reset')
-      return res.status(400).json({
-        valid: false,
-        error: 'Invalid token'
-      });
-
-    // check user exists
-    const result = await db.query(
-      'SELECT id,email FROM users WHERE id=$1',
-      [decoded.id]
-    );
-
-    if (result.rows.length === 0)
-      return res.status(404).json({
-        valid: false,
-        error: 'User not found'
-      });
-
-    res.json({
-      valid: true,
-      email: result.rows[0].email
-    });
-
-  }
-  catch (err) {
-
-    console.error(err);
-
-    res.status(400).json({
-      valid: false,
-      error: 'Token invalid or expired'
-    });
-
-  }
-
-});
+      return res.json({ valid: true, email: result.rows[0].email });
+    } catch (err) {
+      console.error('Verify reset token error:', err?.message || err);
+      return res.status(400).json({ valid: false, error: 'Token invalid or expired' });
+    }
+  });
 
 
   // ================= RESET PASSWORD =================
   router.post('/reset-password', async (req, res) => {
-
     try {
-
       const { token, newPassword } = req.body;
+
+      if (!token || !newPassword) {
+        return res.status(400).json({ error: 'Token and newPassword are required' });
+      }
 
       const decoded = verifyToken(token);
 
-      const hash =
-        await bcrypt.hash(newPassword, 10);
+      if (!decoded || decoded.type !== 'password-reset') {
+        return res.status(400).json({ error: 'Invalid or expired token' });
+      }
 
-      await db.query(
-        'UPDATE users SET password_hash=$1 WHERE id=$2',
-        [hash, decoded.id]
-      );
+      // Basic password strength check (enforce in frontend as well)
+      if (typeof newPassword !== 'string' || newPassword.length < 8) {
+        return res.status(400).json({ error: 'New password must be at least 8 characters long' });
+      }
 
-      res.json({
-        success: true
-      });
+      const hash = await bcrypt.hash(newPassword, 10);
 
+      await db.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, decoded.id]);
+
+      return res.json({ success: true, message: 'Password updated' });
+    } catch (err) {
+      console.error('Reset password error:', err?.message || err);
+      return res.status(500).json({ error: 'Failed to reset password' });
     }
-    catch {
-
-      res.status(500).json({
-        error: 'Reset failed'
-      });
-
-    }
-
   });
 
 
