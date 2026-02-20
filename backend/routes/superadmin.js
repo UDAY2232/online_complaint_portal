@@ -107,29 +107,48 @@ const initSuperadminRoutes = (db) => {
         recentEscalations = [];
       }
 
-      // Get admin performance (safe query - status_history may not exist)
+      // Get admin performance (prefer status_history if available for attribution)
       let adminPerformance = [];
       try {
+        // Prefer to attribute resolutions using status_history.changed_by = user.email
         const result = await db.query(`
-          SELECT 
+          SELECT
             u.id, u.name, u.email,
-            COUNT(c.*) FILTER (WHERE c.status = 'resolved') as resolved_count,
-            AVG(EXTRACT(EPOCH FROM (c.resolved_at - c.created_at))/3600) 
-              FILTER (WHERE c.status = 'resolved' AND c.resolved_at IS NOT NULL) as avg_resolution_hours
+            COUNT(sh.*) FILTER (WHERE sh.new_status = 'resolved') as resolved_count,
+            AVG(EXTRACT(EPOCH FROM (sh.changed_at - c.created_at))/3600)
+              FILTER (WHERE sh.new_status = 'resolved' AND c.created_at IS NOT NULL) as avg_resolution_hours
           FROM users u
-          LEFT JOIN complaints c ON c.user_id = u.id
+          LEFT JOIN status_history sh ON sh.changed_by = u.email AND sh.new_status = 'resolved'
+          LEFT JOIN complaints c ON sh.complaint_id = c.id
           WHERE u.role IN ('admin', 'superadmin') AND u.status = 'active'
           GROUP BY u.id
         `);
         adminPerformance = result.rows;
       } catch (err) {
-        console.log('Admin performance query failed (status_history may not exist):', err.message);
-        // Fallback: just list admins without performance data
-        const adminsResult = await db.query(`
-          SELECT id, name, email, 0 as resolved_count, NULL as avg_resolution_hours
-          FROM users WHERE role IN ('admin', 'superadmin') AND status = 'active'
-        `);
-        adminPerformance = adminsResult.rows;
+        console.log('Admin performance query with status_history failed, falling back to best-effort:', err.message);
+        // Fallback: try to use assigned_to column if present (admins assigned to complaints)
+        try {
+          const fallback = await db.query(`
+            SELECT
+              u.id, u.name, u.email,
+              COUNT(c.*) FILTER (WHERE c.status = 'resolved' AND c.assigned_to = u.id) as resolved_count,
+              AVG(EXTRACT(EPOCH FROM (c.resolved_at - c.created_at))/3600)
+                FILTER (WHERE c.status = 'resolved' AND c.resolved_at IS NOT NULL AND c.assigned_to = u.id) as avg_resolution_hours
+            FROM users u
+            LEFT JOIN complaints c ON c.assigned_to = u.id
+            WHERE u.role IN ('admin', 'superadmin') AND u.status = 'active'
+            GROUP BY u.id
+          `);
+          adminPerformance = fallback.rows;
+        } catch (err2) {
+          console.log('Fallback admin performance query failed:', err2.message);
+          // Final fallback: list admins without performance data
+          const adminsResult = await db.query(`
+            SELECT id, name, email, 0 as resolved_count, NULL as avg_resolution_hours
+            FROM users WHERE role IN ('admin', 'superadmin') AND status = 'active'
+          `);
+          adminPerformance = adminsResult.rows;
+        }
       }
 
       res.json({

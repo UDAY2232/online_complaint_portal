@@ -473,6 +473,18 @@ app.put(
         console.error('Failed to fetch complaint after resolve for email:', err && err.message ? err.message : err);
       }
 
+      // Record status change in status_history table if it exists
+      try {
+        await client.query(`
+          INSERT INTO status_history (complaint_id, old_status, new_status, changed_by, changed_at)
+          SELECT id, status, 'resolved', $1, NOW()
+          FROM complaints WHERE id = $2
+        `, [req.user?.email || 'system', req.params.id]);
+      } catch (err) {
+        // Table may not exist - log and continue
+        console.warn('status_history insert failed (table may not exist):', err && err.message ? err.message : err);
+      }
+
       res.json({ success: true });
 
     }
