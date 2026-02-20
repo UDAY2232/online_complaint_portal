@@ -126,19 +126,18 @@ const AdminSettings = () => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      // Backend does not provide profile update endpoint. Save locally only.
-      if (name) {
-        localStorage.setItem("userName", name);
-      }
+      const res = await api.updateProfile({ name });
+      const user = res?.data?.user;
+      if (user?.name) setName(user.name);
       toast({
         title: "Profile updated",
-        description: "Profile saved locally (server sync not available).",
+        description: "Profile updated successfully.",
       });
     } catch (error: any) {
       console.error("Profile update error:", error);
       toast({
         title: "Error",
-        description: "Failed to save profile locally.",
+        description: error?.response?.data?.error || "Failed to update profile.",
         variant: "destructive",
       });
     } finally {
@@ -178,13 +177,22 @@ const AdminSettings = () => {
     }
     
     setIsChangingPassword(true);
-    // Change password is not supported by backend. Notify user and skip API call.
-    toast({
-      title: "Not supported",
-      description: "Change password is not supported by the backend at this time.",
-      variant: "destructive",
-    });
-    setIsChangingPassword(false);
+    try {
+      await api.changePassword(currentPassword, newPassword);
+      toast({ title: "Password changed", description: "Your password was updated.", });
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err: any) {
+      console.error('Change password failed', err);
+      toast({
+        title: 'Error',
+        description: err?.response?.data?.error || 'Failed to change password.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsChangingPassword(false);
+    }
   };
 
   const handleSystemSettingChange = (key: string, value: string | boolean) => {

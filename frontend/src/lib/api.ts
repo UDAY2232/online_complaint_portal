@@ -217,18 +217,23 @@ export const api = {
   getAllAdmins: () =>
     axiosInstance.get("/superadmin/admins"),
 
-  getEscalationHistory: async () => {
-    const response = await axiosInstance.get("/superadmin/escalation-history");
-
-    return {
-      data: {
-        success: response.data?.success ?? true,
-        history: Array.isArray(response.data?.history) ? response.data.history : [],
-        total: response.data?.total ?? 0,
-        limit: response.data?.limit ?? 50,
-        offset: response.data?.offset ?? 0,
-      },
-    };
+  getEscalationHistory: async (params?: { limit?: number; offset?: number }) => {
+    try {
+      const q = params ? `?limit=${params.limit || 50}&offset=${params.offset || 0}` : '';
+      const response = await axiosInstance.get(`/superadmin/escalation-history${q}`);
+      const d = response.data || {};
+      return {
+        data: {
+          success: d.success ?? true,
+          history: Array.isArray(d.history) ? d.history : [],
+          total: d.total ?? 0,
+          limit: d.limit ?? (params?.limit ?? 50),
+          offset: d.offset ?? (params?.offset ?? 0),
+        },
+      };
+    } catch (err) {
+      return Promise.reject(err);
+    }
   },
 
   manualEscalate: (complaintId: number, reason: string) =>
@@ -262,15 +267,18 @@ export const api = {
   // Profile update: backend does not provide profile update endpoint for now.
   // Persist display name locally and return a resolved promise with the updated user object.
   updateProfile: (data: { name?: string; displayName?: string }) => {
-    const userName = data.name || data.displayName;
-    const user = {
-      name: userName || localStorage.getItem("userName") || null,
-      email: localStorage.getItem("userEmail") || null,
-    };
-    if (userName) {
-      localStorage.setItem("userName", userName);
+    const userName = data.name || data.displayName; 
+    try {
+      const response = await axiosInstance.put('/auth/profile', { name: userName });
+      const user = response.data?.user || null;
+      if (user) {
+        if (user.name) localStorage.setItem('userName', user.name);
+        if (user.email) localStorage.setItem('userEmail', user.email);
+      }
+      return { data: { user } };
+    } catch (err) {
+      return Promise.reject(err);
     }
-    return Promise.resolve({ data: { user } });
   },
 
   // Get current user profile from backend (fresh data)
@@ -313,7 +321,13 @@ export const api = {
   resetPassword: (token: string, newPassword: string) =>
     axiosInstance.post("/auth/reset-password", { token, newPassword }),
 
-  // Change password is not supported by backend in current API surface.
-  changePassword: (currentPassword: string, newPassword: string) =>
-    Promise.reject({ response: { data: { error: "Change password is not supported by backend" } } }),
+  // Change password: call backend endpoint to change password
+  changePassword: async (currentPassword: string, newPassword: string) => {
+    try {
+      const response = await axiosInstance.post('/auth/change-password', { currentPassword, newPassword });
+      return response;
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  },
 };

@@ -137,7 +137,7 @@ const App = () => (
             path="/superadmin/escalated"
             element={
               <ProtectedRoute role="superadmin">
-                <SuperAdminDashboard />
+                <EscalationHistory />
               </ProtectedRoute>
             }
           />
