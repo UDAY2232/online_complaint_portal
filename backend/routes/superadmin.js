@@ -80,14 +80,32 @@ const initSuperadminRoutes = (db) => {
         GROUP BY priority
       `);
 
-      // Get recent escalations (last 7 days)
-      const recentEscalationsResult = await db.query(`
-        SELECT DATE(created_at) as date, COUNT(*) as count
-        FROM escalation_history
-        WHERE created_at >= NOW() - INTERVAL '7 days'
-        GROUP BY DATE(created_at)
-        ORDER BY date
-      `);
+      // Get recent escalations (last 7 days) - defensive: return empty list if table missing
+      let recentEscalations = [];
+      try {
+        const existsRes = await db.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_name = 'escalation_history' AND table_schema = current_schema()
+          )
+        `);
+
+        if (existsRes.rows[0].exists) {
+          const recentEscalationsResult = await db.query(`
+            SELECT DATE(created_at) as date, COUNT(*) as count
+            FROM escalation_history
+            WHERE created_at >= NOW() - INTERVAL '7 days'
+            GROUP BY DATE(created_at)
+            ORDER BY date
+          `);
+          recentEscalations = recentEscalationsResult.rows;
+        } else {
+          recentEscalations = [];
+        }
+      } catch (err) {
+        console.log('Recent escalations query failed:', err.message);
+        recentEscalations = [];
+      }
 
       // Get admin performance (safe query - status_history may not exist)
       let adminPerformance = [];
@@ -120,7 +138,7 @@ const initSuperadminRoutes = (db) => {
           overall: overallStatsResult.rows[0],
           byEscalationLevel: byEscalationLevelResult.rows,
           byPriority: byPriorityResult.rows,
-          recentEscalations: recentEscalationsResult.rows,
+          recentEscalations,
           adminPerformance
         }
       });
@@ -154,35 +172,95 @@ const initSuperadminRoutes = (db) => {
 
   // ================= GET ESCALATION HISTORY =================
   router.get('/escalation-history', async (req, res) => {
+    // Robust, performant handler with table-existence check and safe joins.
     try {
-      const limit = parseInt(req.query.limit) || 50;
-      const offset = parseInt(req.query.offset) || 0;
+      // Parse and sanitize paging params
+      const MAX_LIMIT = 1000;
+      let limit = parseInt(req.query.limit, 10);
+      let offset = parseInt(req.query.offset, 10);
 
-      const historyResult = await db.query(`
-        SELECT eh.*, c.category, c.priority, c.status as current_status, 
-               u.name as user_name, u.email as user_email
+      if (isNaN(limit) || limit <= 0) limit = 50;
+      if (isNaN(offset) || offset < 0) offset = 0;
+      limit = Math.min(limit, MAX_LIMIT);
+
+      // Check if escalation_history table exists in current schema
+      const existsRes = await db.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables
+          WHERE table_schema = current_schema() AND table_name = 'escalation_history'
+        ) as exists
+      `);
+
+      if (!existsRes.rows || !existsRes.rows[0] || !existsRes.rows[0].exists) {
+        // Table missing - return safe empty response (production-friendly)
+        return res.json({
+          success: true,
+          history: [],
+          total: 0,
+          limit,
+          offset
+        });
+      }
+
+      // Count total (separate query for accurate total with LIMIT/OFFSET pagination)
+      const totalRes = await db.query(`SELECT COUNT(*)::int as total FROM escalation_history`);
+      const total = totalRes.rows[0] ? parseInt(totalRes.rows[0].total, 10) : 0;
+
+      if (total === 0) {
+        return res.json({ success: true, history: [], total: 0, limit, offset });
+      }
+
+      // Main query: join escalation_history -> complaints -> users
+      // Use LEFT JOINs and COALESCE to safely handle missing complaint/user data
+      const historyQuery = `
+        SELECT
+          eh.id,
+          eh.complaint_id,
+          eh.escalation_level,
+          eh.reason as escalation_reason,
+          eh.created_at as created_at,
+          c.category as complaint_category,
+          c.priority as complaint_priority,
+          c.status as complaint_status,
+          c.description as complaint_description,
+          COALESCE(u.id, NULL) as user_id,
+          COALESCE(u.name, c.name, '') as user_name,
+          COALESCE(u.email, c.email, '') as user_email
         FROM escalation_history eh
         LEFT JOIN complaints c ON eh.complaint_id = c.id
         LEFT JOIN users u ON c.user_id = u.id
         ORDER BY eh.created_at DESC
         LIMIT $1 OFFSET $2
-      `, [limit, offset]);
+      `;
 
-      const totalCountResult = await db.query(
-        'SELECT COUNT(*) as total FROM escalation_history'
-      );
+      const historyRes = await db.query(historyQuery, [limit, offset]);
 
-      res.json({
-        success: true,
-        history: historyResult.rows,
-        total: totalCountResult.rows[0].total,
-        limit,
-        offset
-      });
+      // Normalize rows for frontend expectations (avoid nulls)
+      const history = historyRes.rows.map((r) => ({
+        id: r.id,
+        complaint_id: r.complaint_id,
+        escalation_level: r.escalation_level,
+        escalation_reason: r.escalation_reason || null,
+        created_at: r.created_at,
+        complaint: {
+          category: r.complaint_category || null,
+          priority: r.complaint_priority || null,
+          status: r.complaint_status || null,
+          description: r.complaint_description || null,
+        },
+        user: {
+          id: r.user_id || null,
+          name: r.user_name || null,
+          email: r.user_email || null,
+        }
+      }));
+
+      return res.json({ success: true, history, total, limit, offset });
 
     } catch (err) {
-      console.error('Get escalation history error:', err);
-      res.status(500).json({ error: 'Failed to fetch escalation history' });
+      // Log full error server-side, return safe message to client
+      console.error('Get escalation history error:', err && err.stack ? err.stack : err);
+      return res.status(500).json({ success: false, error: 'Failed to fetch escalation history' });
     }
   });
 

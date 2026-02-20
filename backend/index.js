@@ -494,6 +494,17 @@ app.get("/api/escalations", authenticate, requireAdmin, async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
     const offset = parseInt(req.query.offset) || 0;
+    // Defensive: if escalation_history table doesn't exist, return empty array
+    const existsRes = await db.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_name = 'escalation_history' AND table_schema = current_schema()
+      )
+    `);
+
+    if (!existsRes.rows[0].exists) {
+      return res.json([]);
+    }
 
     const result = await db.query(
       `
