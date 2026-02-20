@@ -448,6 +448,31 @@ app.put(
 
       await client.query("COMMIT");
 
+      // Fetch updated complaint (with user info) to send resolution email
+      try {
+        const updatedResult = await client.query(
+          `SELECT c.*, u.name as user_name, u.email as user_email FROM complaints c LEFT JOIN users u ON c.user_id = u.id WHERE c.id = $1`,
+          [req.params.id]
+        );
+
+        const updatedComplaint = updatedResult.rows[0] || null;
+
+        if (updatedComplaint && (updatedComplaint.user_email || updatedComplaint.email)) {
+          // Normalize email/name fields for the email service
+          updatedComplaint.email = updatedComplaint.user_email || updatedComplaint.email;
+          updatedComplaint.name = updatedComplaint.user_name || updatedComplaint.name;
+
+          // Fire-and-forget sendResolutionEmail; log errors but don't block response
+          sendResolutionEmail(updatedComplaint).catch(err =>
+            console.error('Email sendResolutionEmail error:', err && err.message ? err.message : err)
+          );
+        } else {
+          console.log('No recipient email found for complaint', req.params.id, '- skipping resolution email');
+        }
+      } catch (err) {
+        console.error('Failed to fetch complaint after resolve for email:', err && err.message ? err.message : err);
+      }
+
       res.json({ success: true });
 
     }
