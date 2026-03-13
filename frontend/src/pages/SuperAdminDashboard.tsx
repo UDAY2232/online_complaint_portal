@@ -92,14 +92,20 @@ const SuperAdminDashboard = () => {
   const fetchAllData = async () => {
     setIsLoading(true);
     try {
-      const [complaintsRes, statsRes, adminsRes] = await Promise.all([
+      const [complaintsRes, statsRes, adminsRes, performanceRes] = await Promise.all([
         api.getEscalatedComplaints(),
         api.getSuperadminStats().catch(() => ({ data: { stats: null } })),
-        api.getAllAdmins().catch(() => ({ data: { admins: [] } }))
+        api.getAllAdmins().catch(() => ({ data: { admins: [] } })),
+        api.getAdminPerformance().catch(() => ({ data: { adminPerformance: [] } }))
       ]);
       
       setComplaints(complaintsRes.data.complaints || []);
-      setStats(statsRes.data.stats);
+      
+      // Merge performance data into stats
+      const mergedStats = statsRes.data.stats || {};
+      mergedStats.adminPerformance = performanceRes.data?.adminPerformance || [];
+      
+      setStats(mergedStats);
       setAdmins(adminsRes.data.admins || []);
     } catch (error: any) {
       console.error('Error fetching data:', error);

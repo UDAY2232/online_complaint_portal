@@ -189,6 +189,60 @@ const initSuperadminRoutes = (db) => {
     }
   });
 
+  // ================= GET ADMIN PERFORMANCE =================
+  router.get('/admin-performance', async (req, res) => {
+    try {
+      // Get admin performance metrics
+      let adminPerformance = [];
+      
+      try {
+        // Prefer to use resolved_by field from complaints table
+        const result = await db.query(`
+          SELECT
+            u.id, 
+            u.name, 
+            u.email,
+            u.role,
+            COUNT(c.id) FILTER (WHERE c.status = 'resolved' AND c.resolved_by = u.id) as resolved_count,
+            COUNT(c.id) FILTER (WHERE c.status = 'resolved' AND c.resolved_by = u.id) as total_assigned,
+            AVG(EXTRACT(EPOCH FROM (c.resolved_at - c.created_at))/3600)
+              FILTER (WHERE c.status = 'resolved' AND c.resolved_by = u.id AND c.resolved_at IS NOT NULL) as avg_resolution_hours,
+            COUNT(c.id) FILTER (WHERE c.escalated = TRUE AND c.escalated_by = u.id) as escalated_count
+          FROM users u
+          LEFT JOIN complaints c ON (c.resolved_by = u.id OR c.escalated_by = u.id)
+          WHERE u.role IN ('admin', 'superadmin') AND u.status = 'active'
+          GROUP BY u.id, u.name, u.email, u.role
+          ORDER BY resolved_count DESC, avg_resolution_hours ASC
+        `);
+        adminPerformance = result.rows.map(row => ({
+          ...row,
+          resolved_count: parseInt(row.resolved_count) || 0,
+          total_assigned: parseInt(row.total_assigned) || 0,
+          avg_resolution_hours: row.avg_resolution_hours ? parseFloat(row.avg_resolution_hours).toFixed(2) : null,
+          escalated_count: parseInt(row.escalated_count) || 0
+        }));
+      } catch (err) {
+        console.log('Admin performance query failed:', err.message);
+        // Fallback: list admins without performance data
+        const adminsResult = await db.query(`
+          SELECT id, name, email, role, 0 as resolved_count, 0 as total_assigned, NULL as avg_resolution_hours, 0 as escalated_count
+          FROM users WHERE role IN ('admin', 'superadmin') AND status = 'active'
+          ORDER BY name ASC
+        `);
+        adminPerformance = adminsResult.rows;
+      }
+
+      res.json({
+        success: true,
+        adminPerformance
+      });
+
+    } catch (err) {
+      console.error('Get admin performance error:', err);
+      res.status(500).json({ error: 'Failed to fetch admin performance' });
+    }
+  });
+
   // ================= GET ESCALATION HISTORY =================
   router.get('/escalation-history', async (req, res) => {
     // Robust, performant handler with table-existence check and safe joins.

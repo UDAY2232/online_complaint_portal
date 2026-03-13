@@ -46,8 +46,63 @@ const initAdminRoutes = (db) => {
     }
   });
 
-  // ================= GET ALL USERS (Admin) =================
-  router.get('/users', async (req, res) => {
+  // ================= ESCALATE COMPLAINT =================
+  router.post('/escalate/:complaintId', async (req, res) => {
+    try {
+      const { complaintId } = req.params;
+      const { reason } = req.body;
+
+      // Get current complaint
+      const complaint = await db.query(
+        'SELECT id, escalated, escalation_level, status FROM complaints WHERE id = $1',
+        [complaintId]
+      );
+
+      if (complaint.rows.length === 0) {
+        return res.status(404).json({ error: 'Complaint not found' });
+      }
+
+      const currentComplaint = complaint.rows[0];
+      const newEscalationLevel = (currentComplaint.escalation_level || 0) + 1;
+
+      // Update complaint with escalation
+      await db.query(
+        `UPDATE complaints 
+         SET escalated = TRUE, escalation_level = $1, escalated_by = $2, escalated_at = NOW(), status_updated_at = NOW()
+         WHERE id = $3`,
+        [newEscalationLevel, req.user.id, complaintId]
+      );
+
+      // Record in escalation_history
+      await db.query(
+        `INSERT INTO escalation_history (complaint_id, escalation_level, reason, created_at)
+         VALUES ($1, $2, $3, NOW())`,
+        [complaintId, newEscalationLevel, reason || 'Escalated by admin']
+      );
+
+      // 📝 Record status history
+      try {
+        await db.query(`
+          INSERT INTO status_history (complaint_id, old_status, new_status, changed_by, changed_by_role, changed_at, notes)
+          VALUES ($1, $2, $3, $4, 'admin', NOW(), $5)
+        `, [complaintId, currentComplaint.status, 'escalated', req.user?.email || 'system', `Escalated to level ${newEscalationLevel}`]);
+      } catch (historyErr) {
+        console.warn('Failed to record escalation in status history:', historyErr.message);
+      }
+
+      res.json({
+        success: true,
+        message: `Complaint escalated to level ${newEscalationLevel}`,
+        escalationLevel: newEscalationLevel
+      });
+    } catch (err) {
+      console.error('Escalate complaint error:', err);
+      res.status(500).json({ error: 'Failed to escalate complaint: ' + err.message });
+    }
+  });
+
+  // ================= GET ALL USERS (Admin can view only) =================
+  router.get('/users', requireSuperadmin, async (req, res) => {
     try {
       const result = await db.query(
         'SELECT id, email, name, role, status, email_verified, created_at FROM users ORDER BY created_at DESC'
@@ -64,8 +119,8 @@ const initAdminRoutes = (db) => {
     }
   });
 
-  // ================= CREATE USER (Admin) =================
-  router.post('/users', async (req, res) => {
+  // ================= CREATE USER (Superadmin only) =================
+  router.post('/users', requireSuperadmin, async (req, res) => {
     try {
       const { email, password, name, role = 'user', status = 'active' } = req.body;
       const bcrypt = require('bcryptjs');
@@ -129,8 +184,8 @@ const initAdminRoutes = (db) => {
     }
   });
 
-  // ================= UPDATE USER (General - handles role, status, name) =================
-  router.put('/users/:id', async (req, res) => {
+  // ================= UPDATE USER (Superadmin only - handles role, status, name) =================
+  router.put('/users/:id', requireSuperadmin, async (req, res) => {
     try {
       const { id } = req.params;
       const { role, status, name, display_name } = req.body;
@@ -194,8 +249,8 @@ const initAdminRoutes = (db) => {
     }
   });
 
-  // ================= PATCH USER (Partial Update - preferred method) =================
-  router.patch('/users/:id', async (req, res) => {
+  // ================= PATCH USER (Superadmin only - partial update) =================
+  router.patch('/users/:id', requireSuperadmin, async (req, res) => {
     try {
       const { id } = req.params;
       const { role, status, name, display_name } = req.body;

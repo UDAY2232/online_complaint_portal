@@ -102,6 +102,69 @@ const runMigrations = async (db) => {
                 WHERE table_schema = current_schema() AND table_name = 'users' AND column_name = 'status'`,
       sql: "ALTER TABLE users ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'active'",
     },
+
+    // ================ NEW FEATURES ================
+    // Before/After Images
+    {
+      name: 'Add before_image_url to complaints',
+        check: `SELECT column_name FROM information_schema.columns 
+                WHERE table_schema = current_schema() AND table_name = 'complaints' AND column_name = 'before_image_url'`,
+      sql: 'ALTER TABLE complaints ADD COLUMN IF NOT EXISTS before_image_url VARCHAR(500)',
+    },
+    {
+      name: 'Add after_image_url to complaints',
+        check: `SELECT column_name FROM information_schema.columns 
+                WHERE table_schema = current_schema() AND table_name = 'complaints' AND column_name = 'after_image_url'`,
+      sql: 'ALTER TABLE complaints ADD COLUMN IF NOT EXISTS after_image_url VARCHAR(500)',
+    },
+    {
+      name: 'Add resolved_by to complaints',
+        check: `SELECT column_name FROM information_schema.columns 
+                WHERE table_schema = current_schema() AND table_name = 'complaints' AND column_name = 'resolved_by'`,
+      sql: 'ALTER TABLE complaints ADD COLUMN IF NOT EXISTS resolved_by INT',
+    },
+    {
+      name: 'Add admin_id to complaints',
+        check: `SELECT column_name FROM information_schema.columns 
+                WHERE table_schema = current_schema() AND table_name = 'complaints' AND column_name = 'admin_id'`,
+      sql: 'ALTER TABLE complaints ADD COLUMN IF NOT EXISTS admin_id INT',
+    },
+    {
+      name: 'Add escalated boolean to complaints',
+        check: `SELECT column_name FROM information_schema.columns 
+                WHERE table_schema = current_schema() AND table_name = 'complaints' AND column_name = 'escalated'`,
+      sql: 'ALTER TABLE complaints ADD COLUMN IF NOT EXISTS escalated BOOLEAN DEFAULT FALSE',
+    },
+    {
+      name: 'Add escalated_by to complaints',
+        check: `SELECT column_name FROM information_schema.columns 
+                WHERE table_schema = current_schema() AND table_name = 'complaints' AND column_name = 'escalated_by'`,
+      sql: 'ALTER TABLE complaints ADD COLUMN IF NOT EXISTS escalated_by INT',
+    },
+    {
+      name: 'Add status_updated_at to complaints',
+        check: `SELECT column_name FROM information_schema.columns 
+                WHERE table_schema = current_schema() AND table_name = 'complaints' AND column_name = 'status_updated_at'`,
+      sql: 'ALTER TABLE complaints ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMP',
+    },
+
+    // Status History table
+    {
+      name: 'Create status_history table',
+        check: `SELECT table_name FROM information_schema.tables 
+                WHERE table_schema = current_schema() AND table_name = 'status_history'`,
+      sql: `CREATE TABLE status_history (
+          id SERIAL PRIMARY KEY,
+          complaint_id INT NOT NULL,
+          old_status VARCHAR(20),
+          new_status VARCHAR(20) NOT NULL,
+          changed_by VARCHAR(255),
+          changed_by_role VARCHAR(20),
+          changed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          notes TEXT,
+          FOREIGN KEY (complaint_id) REFERENCES complaints(id) ON DELETE CASCADE
+        )`,
+    },
   ];
 
   for (const migration of migrations) {

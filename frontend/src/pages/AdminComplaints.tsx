@@ -41,6 +41,7 @@ const AdminComplaints = () => {
   const [adminMessage, setAdminMessage] = useState("");
   const [resolvedImage, setResolvedImage] = useState<File | null>(null);
   const [resolvedImagePreview, setResolvedImagePreview] = useState<string | null>(null);
+  const [isEscalating, setIsEscalating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fetchCalledRef = useRef(false);
   const { toast } = useToast();
@@ -160,6 +161,37 @@ const AdminComplaints = () => {
   const handleCloseDialog = () => {
     setSelectedComplaint(null);
     resetResolveForm();
+  };
+
+  const handleEscalateComplaint = async () => {
+    if (!selectedComplaint) return;
+
+    setIsEscalating(true);
+    try {
+      await api.escalateComplaint(selectedComplaint.id, "Escalated by admin");
+      
+      setComplaints(complaints.map(c =>
+        c.id === selectedComplaint.id 
+          ? { ...c, escalation_level: (c.escalation_level || 0) + 1, escalated_at: new Date().toISOString() }
+          : c
+      ));
+      
+      toast({
+        title: "Complaint Escalated",
+        description: "Complaint has been escalated successfully.",
+      });
+      
+      setSelectedComplaint(null);
+    } catch (error: any) {
+      console.error("Error escalating complaint:", error);
+      toast({
+        title: "Error",
+        description: error.response?.data?.error || "Failed to escalate complaint.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsEscalating(false);
+    }
   };
 
   const handleResolveComplaint = async () => {
@@ -492,7 +524,7 @@ const AdminComplaints = () => {
               <div>
                 <p className="text-sm font-medium mb-2 flex items-center gap-2">
                   <Image className="h-4 w-4" />
-                  Problem Image
+                  Before Image (Problem)
                 </p>
                 <img
                   src={selectedComplaint.problem_image_url}
@@ -563,20 +595,46 @@ const AdminComplaints = () => {
                   <CheckCircle className="h-4 w-4" />
                   Resolution Details
                 </h4>
+
+                {/* Before Image */}
+                <div>
+                  <p className="text-sm font-medium mb-2 flex items-center gap-2">
+                    <Image className="h-4 w-4" />
+                    Before Image
+                  </p>
+                  {selectedComplaint?.problem_image_url ? (
+                    <img
+                      src={selectedComplaint.problem_image_url}
+                      alt="Before"
+                      className="w-full max-h-48 object-contain rounded-lg border"
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">No before image uploaded</p>
+                  )}
+                </div>
+
+                {/* After Image */}
+                <div>
+                  <p className="text-sm font-medium mb-2 flex items-center gap-2">
+                    <Image className="h-4 w-4" />
+                    After Image (Resolution)
+                  </p>
+                  {selectedComplaint?.resolved_image_url || selectedComplaint?.after_image_url ? (
+                    <img
+                      src={selectedComplaint?.resolved_image_url || selectedComplaint?.after_image_url}
+                      alt="After"
+                      className="w-full max-h-48 object-contain rounded-lg border"
+                    />
+                  ) : (
+                    <p className="text-sm text-muted-foreground italic">⚠️ Resolution image not uploaded</p>
+                  )}
+                </div>
+
+                {/* Resolution Message */}
                 {selectedComplaint?.resolution_message && (
                   <div>
                     <p className="text-sm font-medium">Resolution Message</p>
                     <p className="text-sm text-muted-foreground">{selectedComplaint.resolution_message}</p>
-                  </div>
-                )}
-                {selectedComplaint?.resolved_image_url && (
-                  <div>
-                    <p className="text-sm font-medium mb-2">Resolution Image</p>
-                    <img
-                      src={selectedComplaint.resolved_image_url}
-                      alt="Resolution"
-                      className="w-full max-h-48 object-contain rounded-lg border"
-                    />
                   </div>
                 )}
               </div>
@@ -584,8 +642,26 @@ const AdminComplaints = () => {
           </div>
 
           {selectedComplaint?.status !== "resolved" && (
-            <DialogFooter className="mt-4">
+            <DialogFooter className="mt-4 flex flex-col gap-2 sm:flex-row">
               <Button variant="outline" onClick={handleCloseDialog}>Cancel</Button>
+              <Button
+                variant="outline"
+                onClick={handleEscalateComplaint}
+                disabled={isEscalating}
+                className="border-orange-300 text-orange-600 hover:bg-orange-50"
+              >
+                {isEscalating ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Escalating...
+                  </>
+                ) : (
+                  <>
+                    <AlertCircle className="mr-2 h-4 w-4" />
+                    Escalate
+                  </>
+                )}
+              </Button>
               <Button
                 onClick={handleResolveComplaint}
                 disabled={isResolving}

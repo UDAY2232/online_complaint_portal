@@ -37,6 +37,10 @@ const AdminUsers = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // Check if current user is superadmin
+  const userRole = localStorage.getItem("userRole") || "";
+  const isSuperAdmin = userRole === "superadmin";
+
   const loadUsers = async () => {
     setIsLoading(true);
     try {
@@ -202,14 +206,24 @@ const AdminUsers = () => {
               <div>
                 <h1 className="text-3xl font-bold">User Management</h1>
                 <p className="text-muted-foreground mt-2">
-                  View and manage registered users
+                  {isSuperAdmin ? "Manage all registered users" : "View registered users"}
                 </p>
               </div>
-              <Button onClick={() => setIsAddOpen(true)}>
-                <UserPlus className="mr-2 h-4 w-4" />
-                Add User
-              </Button>
+              {isSuperAdmin && (
+                <Button onClick={() => setIsAddOpen(true)}>
+                  <UserPlus className="mr-2 h-4 w-4" />
+                  Add User
+                </Button>
+              )}
             </div>
+
+            {!isSuperAdmin && (
+              <Card className="border-orange-200 bg-orange-50 dark:bg-orange-950/20">
+                <CardContent className="p-4 text-sm text-orange-800 dark:text-orange-200">
+                  📋 Admin users can view the user list, but only SuperAdmins can add, modify, or delete users.
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader>
@@ -253,9 +267,11 @@ const AdminUsers = () => {
                         <Badge className={getStatusBadgeColor(user.status)}>
                           {user.status}
                         </Badge>
-                        <Button variant="outline" size="sm" onClick={() => handleManageUser(user)}>
-                          Manage
-                        </Button>
+                        {isSuperAdmin && (
+                          <Button variant="outline" size="sm" onClick={() => handleManageUser(user)}>
+                            Manage
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}

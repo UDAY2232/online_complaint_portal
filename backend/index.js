@@ -194,9 +194,11 @@ app.post(
           is_anonymous,
           status,
           problem_image_url,
-          created_at
+          before_image_url,
+          created_at,
+          status_updated_at
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,'new',$8,NOW())
+        VALUES ($1,$2,$3,$4,$5,$6,$7,'new',$8,$8,NOW(),NOW())
         RETURNING id
         `,
 
@@ -220,6 +222,18 @@ app.post(
           "SELECT * FROM complaints WHERE id=$1",
           [complaintId]
         );
+
+      // 📝 Add initial status history entry
+      try {
+        await db.query(
+          `INSERT INTO status_history (complaint_id, old_status, new_status, changed_by, changed_by_role, changed_at, notes)
+           VALUES ($1, NULL, 'new', $2, $3, NOW(), 'Complaint created')`,
+          [complaintId, email || 'anonymous', 'user']
+        );
+      } catch (historyErr) {
+        console.warn('Failed to record initial status history:', historyErr.message);
+        // Don't block complaint creation if history fails
+      }
 
       sendComplaintSubmissionEmail(
         complaintResult.rows[0]
@@ -372,13 +386,31 @@ app.put(
 
     try {
 
+      // Get current status for history
+      const currentResult = await db.query(
+        "SELECT status FROM complaints WHERE id=$1",
+        [req.params.id]
+      );
+      
+      const oldStatus = currentResult.rows[0]?.status;
+
       await db.query(
 
-        "UPDATE complaints SET status=$1 WHERE id=$2",
+        "UPDATE complaints SET status=$1, status_updated_at=NOW() WHERE id=$2",
 
         [req.body.status, req.params.id]
 
       );
+
+      // 📝 Record status change in history
+      try {
+        await db.query(`
+          INSERT INTO status_history (complaint_id, old_status, new_status, changed_by, changed_by_role, changed_at, notes)
+          VALUES ($1, $2, $3, $4, 'admin', NOW(), 'Status updated by admin')
+        `, [req.params.id, oldStatus, req.body.status, req.user?.email || 'system']);
+      } catch (historyErr) {
+        console.warn('Failed to record status history:', historyErr.message);
+      }
 
       res.json({
         success: true
@@ -433,14 +465,19 @@ app.put(
         SET
           status='resolved',
           resolution_message=$1,
+          after_image_url=$2,
           resolved_image_url=$2,
-          resolved_at=NOW()
-        WHERE id=$3
+          resolved_by=$3,
+          admin_id=$3,
+          resolved_at=NOW(),
+          status_updated_at=NOW()
+        WHERE id=$4
         `,
 
         [
           req.body.resolution_message,
           imageUrl,
+          req.user.id,
           req.params.id
         ]
 
@@ -476,8 +513,8 @@ app.put(
       // Record status change in status_history table if it exists
       try {
         await client.query(`
-          INSERT INTO status_history (complaint_id, old_status, new_status, changed_by, changed_at)
-          SELECT id, status, 'resolved', $1, NOW()
+          INSERT INTO status_history (complaint_id, old_status, new_status, changed_by, changed_by_role, changed_at, notes)
+          SELECT id, 'under-review', 'resolved', $1, 'admin', NOW(), 'Complaint resolved'
           FROM complaints WHERE id = $2
         `, [req.user?.email || 'system', req.params.id]);
       } catch (err) {
@@ -559,6 +596,49 @@ app.get("/api/escalations", authenticate, requireAdmin, async (req, res) => {
   } catch (err) {
     console.error('Get /api/escalations error:', err);
     res.status(500).json({ error: 'Failed to fetch escalations' });
+  }
+});
+
+// ================= GET STATUS HISTORY FOR COMPLAINT =================
+app.get("/api/complaints/:id/status-history", authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Verify user owns this complaint or is admin
+    const complaintResult = await db.query(
+      "SELECT id, user_id, email FROM complaints WHERE id = $1",
+      [id]
+    );
+
+    if (complaintResult.rows.length === 0) {
+      return res.status(404).json({ error: "Complaint not found" });
+    }
+
+    const complaint = complaintResult.rows[0];
+
+    // Check permission: user owns complaint or is admin
+    if (req.user.role !== 'admin' && req.user.role !== 'superadmin') {
+      if (complaint.user_id !== req.user.id && complaint.email?.toLowerCase() !== req.user.email?.toLowerCase()) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
+
+    // Get status history
+    const historyResult = await db.query(
+      `SELECT id, complaint_id, old_status, new_status, changed_by, changed_by_role, changed_at, notes
+       FROM status_history
+       WHERE complaint_id = $1
+       ORDER BY changed_at ASC`,
+      [id]
+    );
+
+    res.json({
+      success: true,
+      history: historyResult.rows
+    });
+  } catch (err) {
+    console.error('Get status history error:', err);
+    res.status(500).json({ error: 'Failed to fetch status history' });
   }
 });
 

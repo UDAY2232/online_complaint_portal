@@ -55,10 +55,19 @@ const StatusTracker = () => {
   }, []);
 
   const openHistory = async (complaintId: number) => {
-    // Backend does not provide a complaint history endpoint. Use local/basic details only.
+    // Fetch status history from backend
     const complaint = complaints.find(c => c.id === complaintId) || null;
     setSelectedComplaint(complaint);
-    setHistoryData([]);
+    
+    try {
+      const response = await api.getStatusHistory(complaintId);
+      setHistoryData(response.data.history || []);
+    } catch (err) {
+      console.error('Failed to load status history', err);
+      setHistoryData([]);
+      toast({ title: 'Info', description: 'Status history not available yet' });
+    }
+    
     setIsHistoryOpen(true);
   };
 

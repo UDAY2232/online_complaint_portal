@@ -201,11 +201,19 @@ export const api = {
     }),
 
   // ================= ESCALATIONS =================
+  // Admin: escalate a complaint
+  escalateComplaint: (complaintId: number, reason?: string) =>
+    axiosInstance.post(`/admin/escalate/${complaintId}`, { reason }),
+
   getEscalations: () =>
     axiosInstance.get("/escalations"),
 
   checkEscalations: () =>
     axiosInstance.post("/complaints/check-escalations"),
+
+  // Get status history for a complaint
+  getStatusHistory: (complaintId: number) =>
+    axiosInstance.get(`/complaints/${complaintId}/status-history`),
 
   // ================= SUPERADMIN =================
   getEscalatedComplaints: () =>
@@ -216,6 +224,10 @@ export const api = {
 
   getAllAdmins: () =>
     axiosInstance.get("/superadmin/admins"),
+
+  // Get admin performance metrics
+  getAdminPerformance: () =>
+    axiosInstance.get("/superadmin/admin-performance"),
 
   getEscalationHistory: async (params?: { limit?: number; offset?: number }) => {
     try {
