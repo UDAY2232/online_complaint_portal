@@ -102,7 +102,7 @@ const initAdminRoutes = (db) => {
   });
 
   // ================= GET ALL USERS (Admin can view only) =================
-  router.get('/users', requireSuperadmin, async (req, res) => {
+  router.get('/users', async (req, res) => {
     try {
       const result = await db.query(
         'SELECT id, email, name, role, status, email_verified, created_at FROM users ORDER BY created_at DESC'

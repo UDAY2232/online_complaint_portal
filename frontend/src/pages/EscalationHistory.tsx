@@ -19,7 +19,17 @@ interface EscalationRecord {
   escalation_level?: number;
   escalated_at?: string;
   escalation_reason?: string;
+  reason?: string;
   created_at?: string;
+  complaint?: {
+    category?: string;
+    priority?: string;
+    status?: string;
+    description?: string;
+  };
+  user?: {
+    email?: string;
+  };
 }
 
 const EscalationHistory = () => {
@@ -38,11 +48,16 @@ const fetchEscalations = async () => {
   try {
     setLoading(true);
 
-    const response = await api.getEscalationHistory();
-
-    console.log("Escalation history response:", response.data);
-
-    const history = Array.isArray(response.data?.history) ? response.data.history : [];
+    let history: any[] = [];
+    if (isSuperAdmin) {
+      const response = await api.getEscalationHistory();
+      console.log("Escalation history response:", response.data);
+      history = Array.isArray(response.data?.history) ? response.data.history : [];
+    } else {
+      const response = await api.getEscalations();
+      console.log("Admin escalations response:", response.data);
+      history = Array.isArray(response.data) ? response.data : [];
+    }
 
     setEscalations(history);
   } catch (error: any) {
