@@ -35,6 +35,7 @@ const UserComplaints = () => {
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
   const [historyData, setHistoryData] = useState<any[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const fetchCalledRef = useRef(false);
   const { toast } = useToast();
@@ -126,8 +127,16 @@ const UserComplaints = () => {
 
   const openDetails = async (complaint: Complaint) => {
     setSelectedComplaint(complaint);
-    // Backend does not expose a complaint history endpoint. Show local/basic details only.
-    setHistoryData([]);
+    setIsHistoryLoading(true);
+    try {
+      const response = await api.getStatusHistory(complaint.id);
+      setHistoryData(response.data?.history || []);
+    } catch (error) {
+      console.error('Failed to load status history', error);
+      setHistoryData([]);
+    } finally {
+      setIsHistoryLoading(false);
+    }
     setIsDetailsOpen(true);
   };
 
@@ -411,7 +420,9 @@ const UserComplaints = () => {
               {/* Status Timeline */}
               <div className="border-t pt-4">
                 <p className="text-sm font-medium mb-3">Status Timeline</p>
-                {historyData.length === 0 ? (
+                {isHistoryLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading timeline...</p>
+                ) : historyData.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No history available.</p>
                 ) : (
                   <div className="space-y-3">

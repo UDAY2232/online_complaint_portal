@@ -85,9 +85,10 @@ const ComplaintForm = ({ onSubmit }: ComplaintFormProps) => {
       onSubmit?.(res.data);
     } catch (error) {
       console.error(error);
+      const message = (error as any)?.response?.data?.error || "Failed to submit complaint";
       toast({
         title: "Error",
-        description: "Failed to submit complaint",
+        description: message,
         variant: "destructive",
       });
     } finally {

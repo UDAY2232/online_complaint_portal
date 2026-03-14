@@ -170,49 +170,63 @@ app.post(
 
       if (req.file) {
 
-        const uploadResult =
-          await cloudinary.uploader.upload(
-            `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
-            { folder: "complaints" }
-          );
+        try {
+          const uploadResult =
+            await cloudinary.uploader.upload(
+              `data:${req.file.mimetype};base64,${req.file.buffer.toString("base64")}`,
+              { folder: "complaints" }
+            );
 
-        imageUrl = uploadResult.secure_url;
+          imageUrl = uploadResult.secure_url;
+        } catch (uploadErr) {
+          // Do not fail complaint creation if image upload fails.
+          console.error("Cloudinary upload failed, creating complaint without image:", uploadErr.message);
+          imageUrl = null;
+        }
 
       }
 
+      // Build INSERT dynamically so app still works if optional columns are missing in deployed DB.
+      const columnRes = await db.query(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = current_schema() AND table_name = 'complaints'
+      `);
+      const complaintColumns = new Set(columnRes.rows.map((r) => r.column_name));
+
+      const columns = [];
+      const values = [];
+      const placeholders = [];
+
+      const addParam = (column, value, cast = '') => {
+        if (!complaintColumns.has(column)) return;
+        columns.push(column);
+        values.push(value);
+        placeholders.push(`$${values.length}${cast}`);
+      };
+
+      const addNow = (column) => {
+        if (!complaintColumns.has(column)) return;
+        columns.push(column);
+        placeholders.push('NOW()');
+      };
+
+      addParam('user_id', userId, '::int');
+      addParam('category', category, '::text');
+      addParam('description', description, '::text');
+      addParam('email', email, '::text');
+      addParam('name', name, '::text');
+      addParam('priority', priority || 'medium', '::text');
+      addParam('is_anonymous', is_anonymous === true || is_anonymous === 'true', '::boolean');
+      addParam('status', 'new', '::text');
+      addParam('problem_image_url', imageUrl, '::text');
+      addParam('before_image_url', imageUrl, '::text');
+      addNow('created_at');
+      addNow('status_updated_at');
+
       const insertResult = await db.query(
-
-        `
-        INSERT INTO complaints
-        (
-          user_id,
-          category,
-          description,
-          email,
-          name,
-          priority,
-          is_anonymous,
-          status,
-          problem_image_url,
-          before_image_url,
-          created_at,
-          status_updated_at
-        )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,'new',$8,$8,NOW(),NOW())
-        RETURNING id
-        `,
-
-        [
-          userId,
-          category,
-          description,
-          email,
-          name,
-          priority || "medium",
-          is_anonymous === true || is_anonymous === "true",
-          imageUrl
-        ]
-
+        `INSERT INTO complaints (${columns.join(', ')}) VALUES (${placeholders.join(', ')}) RETURNING id`,
+        values
       );
 
       const complaintId = insertResult.rows[0].id;
@@ -282,6 +296,7 @@ app.get("/api/user/complaints", authenticate, async (req, res) => {
     }
 
     const email = req.user.email.toLowerCase();
+    const userId = req.user.id;
 
     // Check table exists
  const testQuery = await db.query(`
@@ -299,24 +314,48 @@ app.get("/api/user/complaints", authenticate, async (req, res) => {
       });
     }
 
-    // Main query
-    const result = await db.query(`
-  SELECT
-    id,
-    category,
-    description,
-    email,
-    name,
-    priority,
-    status,
-    problem_image_url,
-    created_at,
-    resolved_at
-  FROM complaints
-  WHERE email IS NOT NULL
-  AND LOWER(email) = LOWER($1)
-  ORDER BY created_at DESC
-`, [email]);
+    const columnRes = await db.query(`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = current_schema() AND table_name = 'complaints'
+    `);
+    const complaintColumns = new Set(columnRes.rows.map((r) => r.column_name));
+
+    if (!complaintColumns.has('email') && !complaintColumns.has('user_id')) {
+      return res.status(500).json({
+        error: "Complaints table is missing both email and user_id columns"
+      });
+    }
+
+    const col = (name, fallback = 'NULL') =>
+      complaintColumns.has(name) ? name : `${fallback} AS ${name}`;
+
+    const selectSql = `
+      SELECT
+        ${col('id')},
+        ${col('category', "''")},
+        ${col('description', "''")},
+        ${col('email')},
+        ${col('name')},
+        ${col('priority', "'medium'")},
+        ${col('status', "'new'")},
+        ${col('problem_image_url')},
+        ${col('after_image_url')},
+        ${col('resolved_image_url')},
+        ${col('resolution_message')},
+        ${col('escalation_level', '0')},
+        ${col('escalated_at')},
+        ${col('created_at', 'NOW()')},
+        ${col('resolved_at')}
+      FROM complaints
+      WHERE $1::text IS NOT NULL
+      ${complaintColumns.has('email') ? 'AND email IS NOT NULL AND LOWER(email) = LOWER($1)' : ''}
+      ${!complaintColumns.has('email') && complaintColumns.has('user_id') ? 'AND user_id = $2' : ''}
+      ORDER BY ${complaintColumns.has('created_at') ? 'created_at' : 'id'} DESC
+    `;
+
+    const params = complaintColumns.has('email') ? [email] : [email, userId];
+    const result = await db.query(selectSql, params);
 
 
     console.log("Complaints found:", result.rows.length);
@@ -394,13 +433,22 @@ app.put(
       
       const oldStatus = currentResult.rows[0]?.status;
 
-      await db.query(
-
-        "UPDATE complaints SET status=$1, status_updated_at=NOW() WHERE id=$2",
-
-        [req.body.status, req.params.id]
-
-      );
+      if (req.body.status === 'resolved') {
+        await db.query(
+          `UPDATE complaints
+           SET status = $1,
+               status_updated_at = NOW(),
+               resolved_at = COALESCE(resolved_at, NOW()),
+               resolved_by = COALESCE(resolved_by, $3)
+           WHERE id = $2`,
+          [req.body.status, req.params.id, req.user?.id || null]
+        );
+      } else {
+        await db.query(
+          "UPDATE complaints SET status=$1, status_updated_at=NOW() WHERE id=$2",
+          [req.body.status, req.params.id]
+        );
+      }
 
       // 📝 Record status change in history
       try {
@@ -444,6 +492,19 @@ app.put(
 
       await client.query("BEGIN");
 
+      // Capture previous status for an accurate status timeline entry.
+      const currentResult = await client.query(
+        'SELECT status FROM complaints WHERE id = $1',
+        [req.params.id]
+      );
+
+      if (currentResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+        return res.status(404).json({ error: 'Complaint not found' });
+      }
+
+      const oldStatus = currentResult.rows[0].status;
+
       let imageUrl = null;
 
       if (req.file) {
@@ -483,46 +544,47 @@ app.put(
 
       );
 
-      await client.query("COMMIT");
-
       // Fetch updated complaint (with user info) to send resolution email
-      try {
-        const updatedResult = await client.query(
-          `SELECT c.*, u.name as user_name, u.email as user_email FROM complaints c LEFT JOIN users u ON c.user_id = u.id WHERE c.id = $1`,
-          [req.params.id]
-        );
+      const updatedResult = await client.query(
+        `SELECT c.*, u.name as user_name, u.email as user_email
+         FROM complaints c
+         LEFT JOIN users u ON c.user_id = u.id
+         WHERE c.id = $1`,
+        [req.params.id]
+      );
 
-        const updatedComplaint = updatedResult.rows[0] || null;
-
-        if (updatedComplaint && (updatedComplaint.user_email || updatedComplaint.email)) {
-          // Normalize email/name fields for the email service
-          updatedComplaint.email = updatedComplaint.user_email || updatedComplaint.email;
-          updatedComplaint.name = updatedComplaint.user_name || updatedComplaint.name;
-
-          // Fire-and-forget sendResolutionEmail; log errors but don't block response
-          sendResolutionEmail(updatedComplaint).catch(err =>
-            console.error('Email sendResolutionEmail error:', err && err.message ? err.message : err)
-          );
-        } else {
-          console.log('No recipient email found for complaint', req.params.id, '- skipping resolution email');
-        }
-      } catch (err) {
-        console.error('Failed to fetch complaint after resolve for email:', err && err.message ? err.message : err);
-      }
+      const updatedComplaint = updatedResult.rows[0] || null;
 
       // Record status change in status_history table if it exists
       try {
         await client.query(`
           INSERT INTO status_history (complaint_id, old_status, new_status, changed_by, changed_by_role, changed_at, notes)
-          SELECT id, 'under-review', 'resolved', $1, 'admin', NOW(), 'Complaint resolved'
+          SELECT id, $3, 'resolved', $1, 'admin', NOW(), 'Complaint resolved'
           FROM complaints WHERE id = $2
-        `, [req.user?.email || 'system', req.params.id]);
+        `, [req.user?.email || 'system', req.params.id, oldStatus || null]);
       } catch (err) {
         // Table may not exist - log and continue
         console.warn('status_history insert failed (table may not exist):', err && err.message ? err.message : err);
       }
 
-      res.json({ success: true });
+      await client.query("COMMIT");
+
+      let emailSent = false;
+      if (updatedComplaint && (updatedComplaint.user_email || updatedComplaint.email)) {
+        updatedComplaint.email = updatedComplaint.user_email || updatedComplaint.email;
+        updatedComplaint.name = updatedComplaint.user_name || updatedComplaint.name;
+
+        try {
+          await sendResolutionEmail(updatedComplaint);
+          emailSent = true;
+        } catch (err) {
+          console.error('Email sendResolutionEmail error:', err && err.message ? err.message : err);
+        }
+      } else {
+        console.log('No recipient email found for complaint', req.params.id, '- skipping resolution email');
+      }
+
+      res.json({ success: true, complaint: updatedComplaint, emailSent });
 
     }
     catch (err) {
